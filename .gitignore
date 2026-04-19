@@ -12,6 +12,7 @@ secrets.yaml
 # Use the example configs as templates
 esphome/*-mini.yaml
 esphome/*-minisplit.yaml
+esphome/tcl-*.yaml
 esphome/laser-*.yaml
 !esphome/example-*.yaml
 
