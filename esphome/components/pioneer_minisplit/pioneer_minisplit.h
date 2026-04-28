@@ -7,6 +7,7 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/select/select.h"
+#include "bb_protocol.h"
 
 namespace esphome {
 namespace pioneer_minisplit {
@@ -205,8 +206,8 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
 
   // TX pending state
   bool pending_power_ = false;
-  uint8_t pending_mode_ = 0x03;
-  uint8_t pending_fan_ = 0x38;
+  uint8_t pending_mode_ = bb_protocol::TX_MODE_COOL;
+  uint8_t pending_fan_ = bb_protocol::TX_FAN_AUTO;
   uint8_t pending_temp_ = 24;
   uint8_t pending_swing_v_ = 0x08;
   uint8_t pending_swing_h_ = 0x80;

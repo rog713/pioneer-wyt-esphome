@@ -26,6 +26,18 @@ What's working, what's not, and what's still being figured out.
 | Outdoor Running | 40 bits 0-3 | 0x0A=running, 0x00=idle |
 | Heat Mode Active | 40 bit 6 | |
 
+## Rewrite Direction
+
+The component is being moved away from one large climate implementation and toward a capture-driven protocol layer:
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| BB packet/mapping layer | `esphome/components/pioneer_minisplit/bb_protocol.*` | Owns checksum, heartbeat/set packet construction, and firmware-backed TX/RX mode, fan, and sleep mappings |
+| ESPHome entity layer | `pioneer_minisplit.*` | Owns climate/select/switch state, publishes sensors, and calls the protocol layer |
+| Debug YAML | `esphome/example-debug.yaml` | Keeps raw bytes and last packets visible while unverified fields are mapped |
+
+This keeps the verified control path separate from guessed status decoding. New features should first land as raw/status captures, then move into `bb_protocol.*` once the byte mapping is proven on the TLS 1.3 board.
+
 ## Still Investigating
 
 | Byte | What I've Seen | Best Guess |

@@ -1,4 +1,5 @@
 #include "pioneer_minisplit.h"
+#include "bb_protocol.h"
 #include "esphome/core/log.h"
 #include "esphome/core/version.h"
 
@@ -98,11 +99,7 @@ void PioneerMinisplit::loop() {
 }
 
 uint8_t PioneerMinisplit::calculate_checksum_(const uint8_t *data, size_t len) {
-  uint8_t xor_sum = 0;
-  for (size_t i = 0; i < len; i++) {
-    xor_sum ^= data[i];
-  }
-  return xor_sum;
+  return bb_protocol::checksum(data, len);
 }
 
 std::string PioneerMinisplit::hex_string_(uint8_t *buf, size_t len) {
@@ -115,76 +112,45 @@ std::string PioneerMinisplit::hex_string_(uint8_t *buf, size_t len) {
 }
 
 void PioneerMinisplit::send_heartbeat_() {
-  uint8_t packet[] = {0xBB, 0x00, 0x01, 0x04, 0x02, 0x01, 0x00, 0x00};
-  packet[7] = this->calculate_checksum_(packet, 7);
+  auto packet = bb_protocol::make_heartbeat();
   
-  this->write_array(packet, sizeof(packet));
+  this->write_array(packet.data(), packet.size());
   this->flush();
   
   this->tx_count_++;
   if (this->packets_tx_sensor_) this->packets_tx_sensor_->publish_state(this->tx_count_);
-  if (this->last_tx_sensor_) this->last_tx_sensor_->publish_state(this->hex_string_(packet, sizeof(packet)));
+  if (this->last_tx_sensor_) this->last_tx_sensor_->publish_state(this->hex_string_(packet.data(), packet.size()));
   
   ESP_LOGD(TAG, "Sent heartbeat");
 }
 
 void PioneerMinisplit::send_command_() {
-  // Command: BB 00 01 03 1C [28 bytes] [xor] = 34 bytes
-  uint8_t packet[34] = {0};
+  bb_protocol::TxState state;
+  state.power = this->pending_power_;
+  state.mode = this->pending_mode_;
+  state.fan = this->pending_fan_;
+  state.set_temp_c = this->pending_temp_;
+  state.eco = this->pending_eco_;
+  state.display = this->pending_display_;
+  state.beep = this->pending_beep_;
+  state.turbo = this->pending_turbo_;
+  state.health = this->pending_health_;
+  state.mute = this->pending_mute_;
+  state.heater_8c = this->pending_8c_heater_;
+  state.sleep = this->pending_sleep_;
+  state.swing_v_dirty = this->pending_swing_v_dirty_;
+  state.swing_v = this->pending_swing_v_;
+  state.swing_h_dirty = this->pending_swing_h_dirty_;
+  state.swing_h = this->pending_swing_h_;
+
+  auto packet = bb_protocol::make_set_command(state);
   
-  packet[0] = 0xBB;
-  packet[1] = 0x00;
-  packet[2] = 0x01;
-  packet[3] = 0x03;
-  packet[4] = 0x1C;  // 28 bytes payload
-  
-  // Byte 7: flags1 [eco, display, beep, ontimer, offtimer, power, 0, 0]
-  uint8_t flags1 = 0;
-  if (this->pending_eco_) flags1 |= 0x80;
-  if (this->pending_display_) flags1 |= 0x40;
-  if (this->pending_beep_) flags1 |= 0x20;
-  if (this->pending_power_) flags1 |= 0x04;
-  packet[7] = flags1;
-  
-  // Byte 8: [mute, 0, turbo, health, mode(4)]
-  uint8_t mode_flags = this->pending_mode_ & 0x0F;
-  if (this->pending_health_) mode_flags |= 0x10;
-  if (this->pending_turbo_) mode_flags |= 0x40;
-  if (this->pending_mute_) mode_flags |= 0x80;
-  packet[8] = mode_flags;
-  
-  // Byte 9: temp = 111 - setpoint
-  packet[9] = 111 - this->pending_temp_;
-  
-  // Byte 10: fan byte (includes 8c heater flag)
-  uint8_t fan_byte = this->pending_fan_;
-  if (this->pending_8c_heater_) fan_byte |= 0x80;
-  packet[10] = fan_byte;
-  
-  // Byte 11: H swing enable (0x08 when H is actively swinging, not fixed)
-  if (this->pending_swing_h_dirty_ &&
-      (this->pending_swing_h_ == 0x81 || this->pending_swing_h_ == 0x82 ||
-       this->pending_swing_h_ == 0x83 || this->pending_swing_h_ == 0x84)) {
-    packet[11] = 0x08;
-  }
-  
-  // Byte 19: sleep mode
-  packet[19] = this->pending_sleep_;
-  
-  // Byte 31: swing_v position. Leave unset unless the command is for swing.
-  if (this->pending_swing_v_dirty_) packet[31] = this->pending_swing_v_;
-  
-  // Byte 32: swing_h position. Leave unset unless the command is for swing.
-  if (this->pending_swing_h_dirty_) packet[32] = this->pending_swing_h_;
-  
-  packet[33] = this->calculate_checksum_(packet, 33);
-  
-  this->write_array(packet, sizeof(packet));
+  this->write_array(packet.data(), packet.size());
   this->flush();
   
   this->tx_count_++;
   if (this->packets_tx_sensor_) this->packets_tx_sensor_->publish_state(this->tx_count_);
-  if (this->last_tx_sensor_) this->last_tx_sensor_->publish_state(this->hex_string_(packet, sizeof(packet)));
+  if (this->last_tx_sensor_) this->last_tx_sensor_->publish_state(this->hex_string_(packet.data(), packet.size()));
   
   ESP_LOGI(TAG, "TX CMD: pwr=%d mode=0x%02X temp=%d fan=0x%02X",
            this->pending_power_, this->pending_mode_, this->pending_temp_, this->pending_fan_);
@@ -247,9 +213,7 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   bool swing_h_active = (byte10 & 0x20) != 0;
   
   uint8_t sleep_mode = 0;
-  if (byte19 == 0x89 || byte19 == 0xB1) sleep_mode = 1;
-  else if (byte19 == 0x8A || byte19 == 0xB2) sleep_mode = 2;
-  else if (byte19 == 0x8B || byte19 == 0xB3) sleep_mode = 3;
+  sleep_mode = bb_protocol::sleep_from_rx(byte19);
   
   bool heater_8c = (byte32 & 0x80) != 0;
   bool mute_flag = (byte33 & 0x80) != 0;
@@ -500,28 +464,11 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     this->pending_mute_ = mute_flag;
     this->pending_8c_heater_ = heater_8c;
     
-    // Sync mode and fan from RX (convert RX mode to TX mode format)
-    // RX: 01=Cool, 02=Fan, 03=Dry, 04=Heat, 05=Auto
-    // TX: 01=Heat, 02=Dry, 03=Cool, 07=Fan, 08=Auto
-    switch (mode) {
-      case 0x01: this->pending_mode_ = 0x03; break;  // RX Cool -> TX Cool
-      case 0x02: this->pending_mode_ = 0x07; break;  // RX Fan -> TX Fan
-      case 0x03: this->pending_mode_ = 0x02; break;  // RX Dry -> TX Dry
-      case 0x04: this->pending_mode_ = 0x01; break;  // RX Heat -> TX Heat
-      case 0x05: this->pending_mode_ = 0x08; break;  // RX Auto -> TX Auto
-    }
-    
-    // Sync fan from RX (convert RX fan nibble to TX fan byte)
-    // RX: 0x08=Auto, 0x09=Low, 0x0A=Med, 0x0B=High, 0x0C=Mid-Low, 0x0D=Mid-High
-    // TX: 0x38=Auto, 0x3A=Low, 0x3B=Med, 0x3D=High, 0x3E=Mid-Low, 0x3F=Mid-High
-    switch (fan) {
-      case 0x08: this->pending_fan_ = 0x38; break;
-      case 0x09: this->pending_fan_ = 0x3A; break;
-      case 0x0A: this->pending_fan_ = 0x3B; break;
-      case 0x0B: this->pending_fan_ = 0x3D; break;
-      case 0x0C: this->pending_fan_ = 0x3E; break;
-      case 0x0D: this->pending_fan_ = 0x3F; break;
-    }
+    uint8_t tx_mode = bb_protocol::tx_mode_from_rx(mode);
+    if (tx_mode != bb_protocol::INVALID) this->pending_mode_ = tx_mode;
+
+    uint8_t tx_fan = bb_protocol::tx_fan_from_rx(fan);
+    if (tx_fan != bb_protocol::INVALID) this->pending_fan_ = tx_fan;
 
     // Mark state as synced after first valid RX decode
     this->state_synced_ = true;
@@ -546,38 +493,15 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
 }
 
 const char* PioneerMinisplit::mode_str_(uint8_t mode) {
-  switch (mode) {
-    case 0x01: return "Cool";
-    case 0x02: return "Fan";
-    case 0x03: return "Dry";
-    case 0x04: return "Heat";
-    case 0x05: return "Auto";
-    default: return "Unknown";
-  }
+  return bb_protocol::rx_mode_name(mode);
 }
 
 const char* PioneerMinisplit::fan_full_str_(uint8_t fan, bool turbo, bool mute) {
-  if (fan == 0x0B && turbo) return "Strong";
-  if (fan == 0x09 && mute) return "Mute";
-  switch (fan) {
-    case 0x08: return "Auto";
-    case 0x09: return "Low";
-    case 0x0A: return "Medium";
-    case 0x0B: return "High";
-    case 0x0C: return "Mid-Low";
-    case 0x0D: return "Mid-High";
-    default: return "Unknown";
-  }
+  return bb_protocol::rx_fan_name(fan, turbo, mute);
 }
 
 const char* PioneerMinisplit::sleep_str_(uint8_t sleep) {
-  switch (sleep) {
-    case 0: return "OFF";
-    case 1: return "Standard";
-    case 2: return "Elderly";
-    case 3: return "Child";
-    default: return "Unknown";
-  }
+  return bb_protocol::sleep_name(sleep);
 }
 
 const char* PioneerMinisplit::swing_v_rx_str_(uint8_t byte50, bool swing_active) {
@@ -610,11 +534,11 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
       this->pending_power_ = true;
       // TX mode: 01=heat, 02=dry, 03=cool, 07=fan, 08=auto
       switch (new_mode) {
-        case climate::CLIMATE_MODE_HEAT: this->pending_mode_ = 0x01; break;
-        case climate::CLIMATE_MODE_DRY: this->pending_mode_ = 0x02; break;
-        case climate::CLIMATE_MODE_COOL: this->pending_mode_ = 0x03; break;
-        case climate::CLIMATE_MODE_FAN_ONLY: this->pending_mode_ = 0x07; break;
-        case climate::CLIMATE_MODE_HEAT_COOL: this->pending_mode_ = 0x08; break;
+        case climate::CLIMATE_MODE_HEAT: this->pending_mode_ = bb_protocol::TX_MODE_HEAT; break;
+        case climate::CLIMATE_MODE_DRY: this->pending_mode_ = bb_protocol::TX_MODE_DRY; break;
+        case climate::CLIMATE_MODE_COOL: this->pending_mode_ = bb_protocol::TX_MODE_COOL; break;
+        case climate::CLIMATE_MODE_FAN_ONLY: this->pending_mode_ = bb_protocol::TX_MODE_FAN; break;
+        case climate::CLIMATE_MODE_HEAT_COOL: this->pending_mode_ = bb_protocol::TX_MODE_AUTO; break;
         default: break;
       }
     }
@@ -636,10 +560,10 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->pending_mute_ = false;
     this->clear_custom_fan_mode_();
     switch (fan) {
-      case climate::CLIMATE_FAN_AUTO: this->pending_fan_ = 0x38; break;
-      case climate::CLIMATE_FAN_LOW: this->pending_fan_ = 0x3A; break;
-      case climate::CLIMATE_FAN_MEDIUM: this->pending_fan_ = 0x3B; break;
-      case climate::CLIMATE_FAN_HIGH: this->pending_fan_ = 0x3D; break;
+      case climate::CLIMATE_FAN_AUTO: this->pending_fan_ = bb_protocol::TX_FAN_AUTO; break;
+      case climate::CLIMATE_FAN_LOW: this->pending_fan_ = bb_protocol::TX_FAN_LOW; break;
+      case climate::CLIMATE_FAN_MEDIUM: this->pending_fan_ = bb_protocol::TX_FAN_MEDIUM; break;
+      case climate::CLIMATE_FAN_HIGH: this->pending_fan_ = bb_protocol::TX_FAN_HIGH; break;
       default: break;
     }
     this->command_pending_ = true;
@@ -651,15 +575,15 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->pending_turbo_ = false;
     this->pending_mute_ = false;
     if (custom_fan == "Strong") {
-      this->pending_fan_ = 0x3D;
+      this->pending_fan_ = bb_protocol::TX_FAN_HIGH;
       this->pending_turbo_ = true;
     } else if (custom_fan == "Mute") {
-      this->pending_fan_ = 0x3A;
+      this->pending_fan_ = bb_protocol::TX_FAN_LOW;
       this->pending_mute_ = true;
     } else if (custom_fan == "Mid-Low") {
-      this->pending_fan_ = 0x3E;
+      this->pending_fan_ = bb_protocol::TX_FAN_MID_LOW;
     } else if (custom_fan == "Mid-High") {
-      this->pending_fan_ = 0x3F;
+      this->pending_fan_ = bb_protocol::TX_FAN_MID_HIGH;
     }
     this->command_pending_ = true;
   }
@@ -681,7 +605,7 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
         break;
       case climate::CLIMATE_PRESET_BOOST:
         this->pending_turbo_ = true;
-        this->pending_fan_ = 0x3D;  // High fan for turbo
+        this->pending_fan_ = bb_protocol::TX_FAN_HIGH;  // High fan for turbo
         break;
       case climate::CLIMATE_PRESET_SLEEP:
         this->pending_sleep_ = 1;  // Sleep mode 1
@@ -703,11 +627,11 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     } else {
       // Update mode based on pending_mode_
       switch (this->pending_mode_) {
-        case 0x01: this->mode = climate::CLIMATE_MODE_HEAT; break;
-        case 0x02: this->mode = climate::CLIMATE_MODE_DRY; break;
-        case 0x03: this->mode = climate::CLIMATE_MODE_COOL; break;
-        case 0x07: this->mode = climate::CLIMATE_MODE_FAN_ONLY; break;
-        case 0x08: this->mode = climate::CLIMATE_MODE_HEAT_COOL; break;
+        case bb_protocol::TX_MODE_HEAT: this->mode = climate::CLIMATE_MODE_HEAT; break;
+        case bb_protocol::TX_MODE_DRY: this->mode = climate::CLIMATE_MODE_DRY; break;
+        case bb_protocol::TX_MODE_COOL: this->mode = climate::CLIMATE_MODE_COOL; break;
+        case bb_protocol::TX_MODE_FAN: this->mode = climate::CLIMATE_MODE_FAN_ONLY; break;
+        case bb_protocol::TX_MODE_AUTO: this->mode = climate::CLIMATE_MODE_HEAT_COOL; break;
         default: break;
       }
     }
@@ -719,17 +643,17 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
       this->set_custom_fan_mode_("Strong");
     } else if (this->pending_mute_) {
       this->set_custom_fan_mode_("Mute");
-    } else if (this->pending_fan_ == 0x3E) {
+    } else if (this->pending_fan_ == bb_protocol::TX_FAN_MID_LOW) {
       this->set_custom_fan_mode_("Mid-Low");
-    } else if (this->pending_fan_ == 0x3F) {
+    } else if (this->pending_fan_ == bb_protocol::TX_FAN_MID_HIGH) {
       this->set_custom_fan_mode_("Mid-High");
     } else {
       this->clear_custom_fan_mode_();
       switch (this->pending_fan_) {
-        case 0x38: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
-        case 0x3A: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
-        case 0x3B: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
-        case 0x3D: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
+        case bb_protocol::TX_FAN_AUTO: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+        case bb_protocol::TX_FAN_LOW: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
+        case bb_protocol::TX_FAN_MEDIUM: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
+        case bb_protocol::TX_FAN_HIGH: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
         default: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
       }
     }
