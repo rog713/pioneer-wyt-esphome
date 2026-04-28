@@ -20,7 +20,7 @@ This fork is currently tuned for the tested **Pioneer WYT012GLSI20RL** remote/ma
 - Full climate control (mode, temp, fan)
 - Eco, Turbo, Mute, Sleep modes
 - Fan speeds from the manual cycle: Auto, Mute, Low, Low-Mid, Medium, Mid-High, High, and Turbo
-- Display toggle
+- Display and beep toggles
 - Up-down and left-right louver motor toggles
 - 46°F freeze protection / 8°C heater
 - Sensors: indoor and outdoor temperature
@@ -89,6 +89,7 @@ The manual exposes louver motor toggles, not fixed louver positions. Production 
 | Switch | What it does |
 |--------|--------------|
 | Display | Unit display on/off |
+| Beep | Command acknowledgement beep on/off; TX-only, not reported by the HVAC |
 | Eco | Energy saver mode for cooling/heating |
 | Turbo | Highest fan speed / rapid temperature change |
 | Mute | Quiet low-fan operation |

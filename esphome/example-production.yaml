@@ -72,6 +72,8 @@ pioneer_minisplit:
   # ============================================
   display_switch:
     name: "Display"
+  beep_switch:
+    name: "Beep"
   eco_switch:
     name: "Eco"
   turbo_switch:
