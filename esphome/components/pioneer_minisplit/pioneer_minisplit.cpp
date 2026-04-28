@@ -2,6 +2,7 @@
 #include "bb_protocol.h"
 #include "esphome/core/log.h"
 #include "esphome/core/version.h"
+#include <cmath>
 
 namespace esphome {
 namespace pioneer_minisplit {
@@ -546,7 +547,7 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     float temp = *call.get_target_temperature();
     if (temp < 16) temp = 16;
     if (temp > 31) temp = 31;
-    this->pending_temp_ = (uint8_t)temp;
+    this->pending_temp_ = (uint8_t) roundf(temp);
     this->command_pending_ = true;
   }
   

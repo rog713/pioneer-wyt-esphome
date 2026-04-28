@@ -153,7 +153,7 @@ Quick reference for TX vs RX encoding:
 |---------|---------|----------|---------|----------|
 | Power | 7 | bit 2 | 7 | bit 4 |
 | Mode | 8 | bits 0-3 | 7 | bits 0-3 |
-| Set Temp | 9 | 111 - °C | 8 | low nibble + 16 |
+| Set Temp | 9 | 111 - rounded °C | 8 | low nibble + 16 |
 | Fan | 10 | fan byte | 8 | bits 4-7 |
 | Display | 7 | bit 6 | 7 | bit 5 |
 | Eco | 7 | bit 7 | 7 | bit 6 |
@@ -219,9 +219,12 @@ Horizontal swing is partially mapped. On the tested `WYT012GLSI20RL` / `esp_air_
 
 ## Temperature Formulas
 
+The BB protocol reports whole Celsius setpoints. ESPHome may receive fractional Celsius values when Home Assistant displays Fahrenheit or when an automation sends a decimal value, so the component rounds to the nearest whole Celsius value before encoding TX byte 9.
+
 ```c
 // Set temp
 set_temp_c = (byte8 & 0x0F) + 16;
+tx_byte9 = 111 - roundf(target_temp_c);
 
 // Current temp (matches Tuya app)
 uint16_t raw = (buf[17] << 8) | buf[18];
