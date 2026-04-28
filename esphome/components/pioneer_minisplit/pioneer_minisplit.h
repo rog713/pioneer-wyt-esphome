@@ -178,7 +178,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   PioneerSelect *swing_h_select_{nullptr};
 
   // RX buffer
-  uint8_t rx_buffer_[64];
+  uint8_t rx_buffer_[128];
   size_t rx_index_ = 0;
   uint32_t last_rx_time_ = 0;
   

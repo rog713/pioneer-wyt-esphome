@@ -70,6 +70,13 @@ void PioneerMinisplit::loop() {
     if (this->rx_index_ >= 5) {
       uint8_t payload_len = this->rx_buffer_[4];
       size_t expected = 5 + payload_len + 1;
+
+      if (expected > sizeof(this->rx_buffer_)) {
+        ESP_LOGW(TAG, "RX invalid length byte: len=%u expected=%u, dropping: %s",
+                 payload_len, expected, this->hex_string_(this->rx_buffer_, this->rx_index_).c_str());
+        this->rx_index_ = 0;
+        continue;
+      }
       
       if (this->rx_index_ >= expected) {
         this->process_packet_(this->rx_buffer_, this->rx_index_);
@@ -77,8 +84,9 @@ void PioneerMinisplit::loop() {
       }
     }
     
-    if (this->rx_index_ >= 64) {
-      ESP_LOGW(TAG, "RX buffer overflow");
+    if (this->rx_index_ >= sizeof(this->rx_buffer_)) {
+      ESP_LOGW(TAG, "RX buffer overflow, dropping: %s",
+               this->hex_string_(this->rx_buffer_, this->rx_index_).c_str());
       this->rx_index_ = 0;
     }
   }

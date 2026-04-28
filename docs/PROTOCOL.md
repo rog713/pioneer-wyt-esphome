@@ -88,7 +88,7 @@ BB 00 01 04 02 01 00 [checksum]
 
 ### Status Response (0x04)
 
-~61 bytes. Sent in response to heartbeat.
+Usually around 61-68 bytes, depending on adapter firmware. Sent in response to heartbeat.
 
 **Key bytes:**
 
@@ -235,4 +235,3 @@ Still figuring these out:
 | 30 | 0x6E idle, 0x82+ heating | Indoor coil temp (÷4 = °C) |
 | 34 | 0x3C → 0x50 under load | Operating state |
 | 36-37 | Drift over time | Runtime counters |
-
