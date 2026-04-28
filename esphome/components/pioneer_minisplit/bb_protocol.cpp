@@ -44,6 +44,11 @@ std::array<uint8_t, SET_PACKET_LEN> make_set_command(const TxState &state) {
   packet[9] = 111 - state.set_temp_c;
 
   uint8_t fan_byte = state.fan;
+  if (state.swing_v_active) {
+    fan_byte |= 0x38;
+  } else {
+    fan_byte &= 0xC7;
+  }
   if (state.heater_8c) fan_byte |= 0x80;
   packet[10] = fan_byte;
 

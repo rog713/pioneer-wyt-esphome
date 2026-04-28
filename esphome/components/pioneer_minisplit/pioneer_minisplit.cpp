@@ -139,6 +139,7 @@ void PioneerMinisplit::send_command_() {
   state.mute = this->pending_mute_;
   state.heater_8c = this->pending_8c_heater_;
   state.sleep = this->pending_sleep_;
+  state.swing_v_active = this->pending_swing_v_active_;
   state.swing_v_dirty = this->pending_swing_v_dirty_;
   state.swing_v = this->pending_swing_v_;
   state.swing_h_dirty = this->pending_swing_h_dirty_;
@@ -455,6 +456,7 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     this->pending_health_ = health;
     this->pending_mute_ = mute_flag;
     this->pending_8c_heater_ = heater_8c;
+    this->pending_swing_v_active_ = swing_v_active;
     
     uint8_t tx_mode = bb_protocol::tx_mode_from_rx(mode);
     if (tx_mode != bb_protocol::INVALID) this->pending_mode_ = tx_mode;
@@ -504,14 +506,14 @@ const char* PioneerMinisplit::sleep_str_(uint8_t sleep) {
 
 const char* PioneerMinisplit::swing_v_rx_str_(uint8_t byte50, bool swing_active) {
   switch (byte50) {
-    case 0x00: return "Off";
+    case 0x00: return swing_active ? "Auto Swing" : "Off";
     default: return "Unknown";
   }
 }
 
 const char* PioneerMinisplit::swing_h_rx_str_(uint8_t byte51, bool swing_active) {
   switch (byte51) {
-    case 0x00: return "Off";
+    case 0x00: return swing_active ? "Auto Swing" : "Off";
     default: return "Unknown";
   }
 }
@@ -635,6 +637,7 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     }
     
     this->target_temperature = this->pending_temp_;
+    if (this->set_temp_sensor_) this->set_temp_sensor_->publish_state((float) this->pending_temp_);
     
     // Update fan mode based on pending state
     if (this->pending_turbo_) {
@@ -765,6 +768,7 @@ void PioneerMinisplit::set_feature(SwitchType type, bool state) {
       break;
     case SWITCH_SWING_V:
       this->pending_swing_v_dirty_ = true;
+      this->pending_swing_v_active_ = state;
       this->pending_swing_v_ = state ? 0x08 : 0x00;
       break;
     case SWITCH_SWING_H:
@@ -804,22 +808,31 @@ void PioneerMinisplit::set_swing_position(SelectType type, const std::string &va
     // TX: 0x08=Auto Swing, 0x88=Swing Upper, 0x48=Swing Lower
     // Fixed: 0x20/0x24/0x28/0x2C/0x30 for positions 1-5
     if (value == "Off") {
+      this->pending_swing_v_active_ = false;
       this->pending_swing_v_ = 0x00;
     } else if (value == "Auto Swing") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x08;
     } else if (value == "Swing Upper") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x88;
     } else if (value == "Swing Lower") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x48;
     } else if (value == "Fixed 1 (Top)") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x20;
     } else if (value == "Fixed 2 (Upper)") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x24;
     } else if (value == "Fixed 3 (Middle)") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x28;
     } else if (value == "Fixed 4 (Mid-Low)") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x2C;
     } else if (value == "Fixed 5 (Bottom)") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x30;
     }
   } else if (type == SELECT_SWING_H) {

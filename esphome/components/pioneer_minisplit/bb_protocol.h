@@ -67,6 +67,7 @@ struct TxState {
   bool mute{false};
   bool heater_8c{false};
   uint8_t sleep{0};
+  bool swing_v_active{false};
   bool swing_v_dirty{false};
   uint8_t swing_v{0x08};
   bool swing_h_dirty{false};

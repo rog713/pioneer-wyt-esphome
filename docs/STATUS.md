@@ -79,6 +79,8 @@ The Starlight and Daizuki Tuya profiles also include DPS-backed features such as
 
 A debug probe on `esp_air_DIM_tcl_8M_QIO_TLS_1.3` showed that bytes 51 and 52 cannot be treated as direct vertical/horizontal louver positions. Horizontal commands changed byte 51, and byte 52 changed during non-louver feature commands. The component now reports nonzero louver position bytes as `Unknown` on this board instead of showing misleading fixed positions. Use the raw byte sensors in `example-debug.yaml` for further mapping.
 
+Vertical louver on/off is verified separately from position decoding. The tested board requires byte 31 plus the vertical movement bits in TX byte 10. Clearing the `0x38` bits from byte 10 while sending byte 31 as `0x00` changed RX byte 10 from `0xC0` to `0x80` and the production `Up-Down Louver` switch then reported off.
+
 ### TX and RX mode values are different
 
 Heat is 0x01 in TX but 0x04 in RX. See PROTOCOL.md for the full mapping.

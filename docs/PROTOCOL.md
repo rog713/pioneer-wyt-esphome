@@ -58,6 +58,7 @@ BB 00 01 04 02 01 00 [checksum]
 | 8 | 0-3 | Mode |
 | 9 | - | Temp: `111 - setpoint_celsius` |
 | 10 | 7 | 8°C Heater |
+| 10 | 3-5 | Vertical louver movement enable bits |
 | 10 | 0-2 | Fan speed |
 | 19 | - | Sleep mode (0-3) |
 | 31 | - | Vertical swing position |
@@ -154,7 +155,7 @@ Quick reference for TX vs RX encoding:
 | Power | 7 | bit 2 | 7 | bit 4 |
 | Mode | 8 | bits 0-3 | 7 | bits 0-3 |
 | Set Temp | 9 | 111 - rounded °C | 8 | low nibble + 16 |
-| Fan | 10 | fan byte | 8 | bits 4-7 |
+| Fan | 10 | fan byte, with vertical louver bits masked separately | 8 | bits 4-7 |
 | Display | 7 | bit 6 | 7 | bit 5 |
 | Eco | 7 | bit 7 | 7 | bit 6 |
 | Turbo | 8 | bit 6 | 7 | bit 7 |
@@ -186,16 +187,19 @@ The older protocol captures used `0x88-0x8B` for the same status range.
 
 RX values are provisional. On the tested TLS 1.3 board, byte 51 changed in response to horizontal commands, so the component does not currently decode nonzero vertical positions from status packets.
 
+On the tested `WYT012GLSI20RL` / `esp_air_DIM_tcl_8M_QIO_TLS_1.3` board, byte 31 alone does not fully control vertical louver movement. The TX fan byte also carries vertical movement bits (`0x38`). To turn up-down louver off, the component sends byte 31 as `0x00` and clears `0x38` from TX byte 10 while preserving the fan-speed bits.
+
 | TX | RX | Position |
 |----|-----|----------|
+| 0x00 | 0x00 | Off |
 | 0x08 | 0x08 | Auto Swing |
-| 0x10 | 0x10 | Swing Upper |
-| 0x18 | 0x18 | Swing Lower |
-| 0x01 | 0x01 | Fixed 1 (Top) |
-| 0x02 | 0x02 | Fixed 2 |
-| 0x03 | 0x03 | Fixed 3 (Middle) |
-| 0x04 | 0x04 | Fixed 4 |
-| 0x05 | 0x05 | Fixed 5 (Bottom) |
+| 0x88 | 0x08 | Swing Upper, provisional |
+| 0x48 | 0x08 | Swing Lower, provisional |
+| 0x20 | 0x00 | Fixed 1 (Top), provisional |
+| 0x24 | 0x00 | Fixed 2, provisional |
+| 0x28 | 0x00 | Fixed 3 (Middle), provisional |
+| 0x2C | 0x00 | Fixed 4, provisional |
+| 0x30 | 0x00 | Fixed 5 (Bottom), provisional |
 
 ### Horizontal (TX byte 32, RX byte 52)
 
