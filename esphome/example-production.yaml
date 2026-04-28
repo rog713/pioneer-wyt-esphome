@@ -21,6 +21,7 @@ esp8266:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  min_auth_mode: WPA2
   ap:
     ssid: "${node_name}-hotspot"
     password: !secret ap_password
@@ -82,7 +83,7 @@ pioneer_minisplit:
   beep_switch:
     name: "Beep"
   health_switch:
-    name: "Health/Ion"
+    name: "Health Ion"
   heater_8c_switch:
     name: "Frost Prevention"
   

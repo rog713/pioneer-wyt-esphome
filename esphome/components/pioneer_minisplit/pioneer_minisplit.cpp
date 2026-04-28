@@ -247,9 +247,9 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   bool swing_h_active = (byte10 & 0x20) != 0;
   
   uint8_t sleep_mode = 0;
-  if (byte19 == 0x89) sleep_mode = 1;
-  else if (byte19 == 0x8A) sleep_mode = 2;
-  else if (byte19 == 0x8B) sleep_mode = 3;
+  if (byte19 == 0x89 || byte19 == 0xB1) sleep_mode = 1;
+  else if (byte19 == 0x8A || byte19 == 0xB2) sleep_mode = 2;
+  else if (byte19 == 0x8B || byte19 == 0xB3) sleep_mode = 3;
   
   bool heater_8c = (byte32 & 0x80) != 0;
   bool mute_flag = (byte33 & 0x80) != 0;
@@ -580,14 +580,6 @@ const char* PioneerMinisplit::sleep_str_(uint8_t sleep) {
 const char* PioneerMinisplit::swing_v_rx_str_(uint8_t byte50, bool swing_active) {
   switch (byte50) {
     case 0x00: return "Off";
-    case 0x01: return "Fixed 1 (Top)";
-    case 0x02: return "Fixed 2 (Upper)";
-    case 0x03: return "Fixed 3 (Middle)";
-    case 0x04: return "Fixed 4 (Mid-Low)";
-    case 0x05: return "Fixed 5 (Bottom)";
-    case 0x08: return "Auto Swing";
-    case 0x10: return "Swing Upper";
-    case 0x18: return "Swing Lower";
     default: return "Unknown";
   }
 }
@@ -595,16 +587,6 @@ const char* PioneerMinisplit::swing_v_rx_str_(uint8_t byte50, bool swing_active)
 const char* PioneerMinisplit::swing_h_rx_str_(uint8_t byte51, bool swing_active) {
   switch (byte51) {
     case 0x00: return "Off";
-    case 0x01: return "Fixed 1 (Far Left)";
-    case 0x02: return "Fixed 2 (Left)";
-    case 0x03: return "Fixed 3 (Center)";
-    case 0x04: return "Fixed 4 (Right)";
-    case 0x05: return "Fixed 5 (Far Right)";
-    case 0x06: return "Fixed 6 (Rightmost)";
-    case 0x08: return "Auto Swing";
-    case 0x10: return "Swing Left";
-    case 0x18: return "Swing Center";
-    case 0x20: return "Swing Right";
     default: return "Unknown";
   }
 }

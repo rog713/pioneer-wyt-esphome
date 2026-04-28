@@ -8,7 +8,7 @@
 ## Tested Units
 
 - **Vtronix Classic America** 12000 BTU Smart Mini Split AC/Heat Pump, 19 SEER2
-- **TYWE1S adapter board** P/N `2.22.01.00710` with sticker version `esp_air_DIM_tcl_8M_QIO_TLS_1.3`
+- **Pioneer WYT012GLSI20RL** with TYWE1S adapter board P/N `2.22.01.00710`, sticker version `esp_air_DIM_tcl_8M_QIO_TLS_1.3`
 
 ![TYWE1S TLS 1.3 PCB Front](images/tywe1s-tls13-front.jpg)
 ![TYWE1S TLS 1.3 PCB Back](images/tywe1s-tls13-back.jpg)
@@ -19,6 +19,7 @@ Should work with other units using the same [TST-DIAWIFITPD WiFi module](https:/
 
 - Full climate control (mode, temp, fan)
 - Eco, Turbo, Mute, Sleep modes
+- TCL-style fan speeds including Auto, Low, Mid-Low, Medium, Mid-High, High, Strong, and Mute
 - Display and beep toggle
 - Vertical/horizontal swing with position control
 - Frost prevention (8°C heater)
@@ -37,7 +38,7 @@ Copy `esphome/components/pioneer_minisplit/` to your ESPHome config folder.
 external_components:
   - source:
       type: git
-      url: https://github.com/KyleTeal/pioneer-wyt-esphome
+      url: https://github.com/rog713/pioneer-wyt-esphome
       ref: main
     components: [pioneer_minisplit]
 ```
@@ -50,15 +51,38 @@ Two example configs are included:
 
 **`example-debug.yaml`** - Everything. Raw bytes, packet history, debug sensors. Use this if you're investigating the protocol or something isn't working right. Creates 50+ entities.
 
+Both examples use the same component code. Production keeps the entity list small, while debug exposes raw packet and byte sensors so protocol changes can be verified before being used daily.
+
 Both require a `secrets.yaml` with your WiFi credentials and API keys. See `secrets.yaml.example`.
 
 ## Climate Entity
 
 Creates a climate entity with:
 - **Modes:** Off, Cool, Heat, Dry, Fan Only, Auto
-- **Fan:** Auto, Low, Medium, High, plus Strong and Mute as custom modes
+- **Fan:** Auto, Low, Medium, High, plus Mid-Low, Mid-High, Strong, and Mute as custom modes
 - **Presets:** Eco, Boost (Turbo), Sleep
 - **Swing:** Separate select entities for precise vertical/horizontal positioning
+
+## TYWE1S TLS 1.3 Notes
+
+The `esp_air_DIM_tcl_8M_QIO_TLS_1.3` board variant reports 68-byte status packets. Older component versions used a 64-byte RX buffer and dropped these packets.
+
+Verified on `WYT012GLSI20RL`:
+
+| Feature | TX | RX |
+|---------|----|----|
+| Auto fan | `0x38` | `0x08` |
+| Low fan | `0x3A` | `0x09` |
+| Medium fan | `0x3B` | `0x0A` |
+| High fan | `0x3D` | `0x0B` |
+| Mid-Low fan | `0x3E` | `0x0C` |
+| Mid-High fan | `0x3F` | `0x0D` |
+| Strong | `0x3D` + turbo flag | `0x0B` + turbo flag |
+| Mute | `0x3A` + mute flag | `0x09` + mute flag |
+
+The fan names match the TCL-style Tuya profiles used by Starlight and Daizuki heat pumps.
+
+Horizontal swing is still being mapped on this board. Fan commands intentionally avoid resending stale swing bytes so changing fan speed does not disturb the louver state.
 
 ## Switches
 
@@ -66,7 +90,7 @@ Creates a climate entity with:
 |--------|--------------|
 | Display | Unit display on/off |
 | Beep | Beep sounds on/off |
-| Health/Ion | Ionizer |
+| Health Ion | Ionizer |
 | Frost Prevention | 8°C minimum temp mode |
 
 ## Protocol Docs

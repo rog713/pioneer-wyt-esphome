@@ -20,6 +20,7 @@ esp8266:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  min_auth_mode: WPA2
   ap:
     ssid: "${node_name}-hotspot"
     password: !secret ap_password
@@ -95,9 +96,9 @@ pioneer_minisplit:
   fan:
     name: "Fan Speed"
   turbo:
-    name: "Turbo/Strong"
+    name: "Turbo Strong"
   mute:
-    name: "Mute/Quiet"
+    name: "Mute Quiet"
   swing:
     name: "Swing (Combined)"
   swing_v:
@@ -109,7 +110,7 @@ pioneer_minisplit:
   display:
     name: "Display"
   health:
-    name: "Health/Ion"
+    name: "Health Ion"
   heater_8c:
     name: "Frost Prevention"
   timer:
@@ -119,7 +120,7 @@ pioneer_minisplit:
   sleep:
     name: "Sleep Mode"
   beep:
-    name: "Beep/Buzzer"
+    name: "Beep Buzzer"
   heat_mode_active:
     name: "Heat Mode Active"
   outdoor_running:
@@ -223,9 +224,9 @@ pioneer_minisplit:
   display_switch:
     name: "Display"
   beep_switch:
-    name: "Beep/Buzzer"
+    name: "Beep Buzzer"
   health_switch:
-    name: "Health/Ion"
+    name: "Health Ion"
   heater_8c_switch:
     name: "Frost Prevention"
   
