@@ -47,8 +47,7 @@ std::array<uint8_t, SET_PACKET_LEN> make_set_command(const TxState &state) {
   if (state.heater_8c) fan_byte |= 0x80;
   packet[10] = fan_byte;
 
-  if (state.swing_h_dirty &&
-      (state.swing_h == 0x81 || state.swing_h == 0x82 || state.swing_h == 0x83 || state.swing_h == 0x84)) {
+  if (state.swing_h_dirty && state.swing_h != 0x80) {
     packet[11] = 0x08;
   }
 
@@ -122,7 +121,7 @@ const char *rx_mode_name(uint8_t rx_mode) {
 }
 
 const char *rx_fan_name(uint8_t rx_fan, bool turbo, bool mute) {
-  if (rx_fan == RX_FAN_HIGH && turbo) return "Strong";
+  if (rx_fan == RX_FAN_HIGH && turbo) return "Turbo";
   if (rx_fan == RX_FAN_LOW && mute) return "Mute";
   switch (rx_fan) {
     case RX_FAN_AUTO:
@@ -134,7 +133,7 @@ const char *rx_fan_name(uint8_t rx_fan, bool turbo, bool mute) {
     case RX_FAN_HIGH:
       return "High";
     case RX_FAN_MID_LOW:
-      return "Mid-Low";
+      return "Low-Mid";
     case RX_FAN_MID_HIGH:
       return "Mid-High";
     default:

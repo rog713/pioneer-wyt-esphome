@@ -10,8 +10,8 @@ What's working, what's not, and what's still being figured out.
 | Mode | 7 bits 0-3 | Cool=1, Fan=2, Dry=3, Heat=4, Auto=5 |
 | Display | 7 bit 5 | |
 | Eco | 7 bit 6 | |
-| Turbo/Strong | 7 bit 7 | |
-| Fan Speed | 8 bits 4-7 | Auto=8, Low=9, Med=A, High=B, Mid-Low=C, Mid-High=D |
+| Turbo | 7 bit 7 | |
+| Fan Speed | 8 bits 4-7 | Auto=8, Low=9, Med=A, High=B, Low-Mid=C, Mid-High=D |
 | Set Temp | 8 bits 0-3 | value + 16 = °C |
 | Health/Ion | 9 bit 2 | |
 | Timer Active | 9 bit 6 | |
@@ -57,15 +57,19 @@ The indoor temp sensor (bytes 17-18) matches what the Tuya app shows, but it's m
 
 ### Beep is TX-only
 
-The HVAC doesn't report beep state back. You can send the command but can't read current state.
+The HVAC doesn't report beep state back. The production config does not expose this because the manual treats beeps as command acknowledgements, not a user setting.
 
 ### TCL-style fan modes
 
-Starlight and Daizuki Tuya-local profiles expose the same fan names: `auto`, `mute`, `low`, `mid_low`, `mid`, `mid_high`, `high`, and `strong`. On the tested `WYT012GLSI20RL` / `esp_air_DIM_tcl_8M_QIO_TLS_1.3` board, `Mid-Low` and `Mid-High` are verified over the BB protocol as TX `0x3E`/`0x3F` and RX nibbles `0x0C`/`0x0D`.
+Starlight and Daizuki Tuya-local profiles expose the same fan names: `auto`, `mute`, `low`, `mid_low`, `mid`, `mid_high`, `high`, and `strong`. On the tested `WYT012GLSI20RL` / `esp_air_DIM_tcl_8M_QIO_TLS_1.3` board, `Low-Mid` and `Mid-High` are verified over the BB protocol as TX `0x3E`/`0x3F` and RX nibbles `0x0C`/`0x0D`.
 
 ### Sleep mode names
 
-The dumped Tuya firmware contains `off`, `normal`, `old`, `child`, and `auto` sleep strings. ESPHome exposes the verified command/status range through a `Sleep Mode` select: Off, Standard, Elderly, and Child.
+The dumped Tuya firmware contains `off`, `normal`, `old`, `child`, and `auto` sleep strings. The WYT012GLSI20RL manual exposes Sleep as a simple on/off feature, so the production config uses a `Sleep` switch. The debug config can still expose the broader sleep select for protocol testing.
+
+### Production feature surface
+
+Production intentionally follows the WYT012GLSI20RL manual: mode, set temperature, fan including Mute/Low-Mid/Mid-High/Turbo, Eco, Sleep, 46°F freeze protection, Display, and up-down/left-right louver motor toggles. Remote-only features such as Timer, I Feel, Memory, and Child Lock are left to Home Assistant automations or the physical remote. Health/Ion is not exposed because it is not present in the provided manual.
 
 ### Tuya features not yet mapped to BB serial
 

@@ -97,6 +97,12 @@ CONF_DISPLAY_SWITCH = "display_switch"
 CONF_BEEP_SWITCH = "beep_switch"
 CONF_HEALTH_SWITCH = "health_switch"
 CONF_HEATER_8C_SWITCH = "heater_8c_switch"
+CONF_ECO_SWITCH = "eco_switch"
+CONF_TURBO_SWITCH = "turbo_switch"
+CONF_MUTE_SWITCH = "mute_switch"
+CONF_SLEEP_SWITCH = "sleep_switch"
+CONF_SWING_V_SWITCH = "swing_v_switch"
+CONF_SWING_H_SWITCH = "swing_h_switch"
 
 # Select config keys
 CONF_SWING_V_SELECT = "swing_v_select"
@@ -245,6 +251,12 @@ CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     cv.Optional(CONF_BEEP_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:volume-high"),
     cv.Optional(CONF_HEALTH_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:hospital-box"),
     cv.Optional(CONF_HEATER_8C_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:snowflake-thermometer"),
+    cv.Optional(CONF_ECO_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:leaf"),
+    cv.Optional(CONF_TURBO_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:arm-flex"),
+    cv.Optional(CONF_MUTE_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:volume-off"),
+    cv.Optional(CONF_SLEEP_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:sleep"),
+    cv.Optional(CONF_SWING_V_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:arrow-up-down"),
+    cv.Optional(CONF_SWING_H_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:arrow-left-right"),
     # Swing position selects
     cv.Optional(CONF_SWING_V_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-up-down"),
     cv.Optional(CONF_SWING_H_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-left-right"),
@@ -484,6 +496,36 @@ async def to_code(config):
         cg.add(var.set_heater_8c_switch(sw))
         cg.add(sw.set_parent(var))
         cg.add(sw.set_type(3))  # HEATER_8C
+    if CONF_ECO_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_ECO_SWITCH])
+        cg.add(var.set_eco_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(4))  # ECO
+    if CONF_TURBO_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_TURBO_SWITCH])
+        cg.add(var.set_turbo_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(5))  # TURBO
+    if CONF_MUTE_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_MUTE_SWITCH])
+        cg.add(var.set_mute_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(6))  # MUTE
+    if CONF_SLEEP_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_SLEEP_SWITCH])
+        cg.add(var.set_sleep_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(7))  # SLEEP
+    if CONF_SWING_V_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_SWING_V_SWITCH])
+        cg.add(var.set_swing_v_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(8))  # SWING_V
+    if CONF_SWING_H_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_SWING_H_SWITCH])
+        cg.add(var.set_swing_h_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(9))  # SWING_H
     
     # Swing selects
     if CONF_SWING_V_SELECT in config:

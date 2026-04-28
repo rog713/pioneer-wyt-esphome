@@ -28,7 +28,7 @@ void PioneerMinisplit::setup() {
   
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 4, 0)
   // ESPHome 2026.4.0+: Set custom modes on entity (new API)
-  this->set_supported_custom_fan_modes({"Mid-Low", "Mid-High", "Strong", "Mute"});
+  this->set_supported_custom_fan_modes({"Mute", "Low-Mid", "Mid-High", "Turbo"});
 #endif
   
   this->send_heartbeat_();
@@ -411,13 +411,13 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     }
   }
   
-  // Fan mode - use custom modes for Strong/Mute
+  // Fan mode - use custom modes for Turbo/Mute and intermediate speeds.
   if (turbo && fan == 0x0B) {
-    this->set_custom_fan_mode_("Strong");
+    this->set_custom_fan_mode_("Turbo");
   } else if (mute_flag && fan == 0x09) {
     this->set_custom_fan_mode_("Mute");
   } else if (fan == 0x0C) {
-    this->set_custom_fan_mode_("Mid-Low");
+    this->set_custom_fan_mode_("Low-Mid");
   } else if (fan == 0x0D) {
     this->set_custom_fan_mode_("Mid-High");
   } else {
@@ -431,16 +431,7 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     }
   }
   
-  // Preset based on eco, turbo, sleep
-  if (eco) {
-    this->preset = climate::CLIMATE_PRESET_ECO;
-  } else if (turbo) {
-    this->preset = climate::CLIMATE_PRESET_BOOST;
-  } else if (sleep_mode > 0) {
-    this->preset = climate::CLIMATE_PRESET_SLEEP;
-  } else {
-    this->preset = climate::CLIMATE_PRESET_NONE;
-  }
+  this->preset = climate::CLIMATE_PRESET_NONE;
   
   // Swing
   if (swing_v_active && swing_h_active) this->swing_mode = climate::CLIMATE_SWING_BOTH;
@@ -477,6 +468,12 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     if (this->display_switch_) this->display_switch_->publish_state(display);
     if (this->health_switch_) this->health_switch_->publish_state(health);
     if (this->heater_8c_switch_) this->heater_8c_switch_->publish_state(heater_8c);
+    if (this->eco_switch_) this->eco_switch_->publish_state(eco);
+    if (this->turbo_switch_) this->turbo_switch_->publish_state(turbo);
+    if (this->mute_switch_) this->mute_switch_->publish_state(mute_flag);
+    if (this->sleep_switch_) this->sleep_switch_->publish_state(sleep_mode > 0);
+    if (this->swing_v_switch_) this->swing_v_switch_->publish_state(swing_v_active);
+    if (this->swing_h_switch_) this->swing_h_switch_->publish_state(swing_h_active);
     // Note: beep_switch_ state is TX only, can't read from RX
   }
 
@@ -569,18 +566,18 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->command_pending_ = true;
   }
   
-  // Handle custom fan modes (Strong, Mute)
+  // Handle custom fan modes (Turbo, Mute, and intermediate speeds)
   if (call.has_custom_fan_mode()) {
     auto custom_fan = call.get_custom_fan_mode();
     this->pending_turbo_ = false;
     this->pending_mute_ = false;
-    if (custom_fan == "Strong") {
+    if (custom_fan == "Turbo" || custom_fan == "Strong") {
       this->pending_fan_ = bb_protocol::TX_FAN_HIGH;
       this->pending_turbo_ = true;
     } else if (custom_fan == "Mute") {
       this->pending_fan_ = bb_protocol::TX_FAN_LOW;
       this->pending_mute_ = true;
-    } else if (custom_fan == "Mid-Low") {
+    } else if (custom_fan == "Low-Mid" || custom_fan == "Mid-Low") {
       this->pending_fan_ = bb_protocol::TX_FAN_MID_LOW;
     } else if (custom_fan == "Mid-High") {
       this->pending_fan_ = bb_protocol::TX_FAN_MID_HIGH;
@@ -640,11 +637,11 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     
     // Update fan mode based on pending state
     if (this->pending_turbo_) {
-      this->set_custom_fan_mode_("Strong");
+      this->set_custom_fan_mode_("Turbo");
     } else if (this->pending_mute_) {
       this->set_custom_fan_mode_("Mute");
     } else if (this->pending_fan_ == bb_protocol::TX_FAN_MID_LOW) {
-      this->set_custom_fan_mode_("Mid-Low");
+      this->set_custom_fan_mode_("Low-Mid");
     } else if (this->pending_fan_ == bb_protocol::TX_FAN_MID_HIGH) {
       this->set_custom_fan_mode_("Mid-High");
     } else {
@@ -658,16 +655,7 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
       }
     }
     
-    // Update preset based on pending state
-    if (this->pending_eco_) {
-      this->preset = climate::CLIMATE_PRESET_ECO;
-    } else if (this->pending_turbo_) {
-      this->preset = climate::CLIMATE_PRESET_BOOST;
-    } else if (this->pending_sleep_ > 0) {
-      this->preset = climate::CLIMATE_PRESET_SLEEP;
-    } else {
-      this->preset = climate::CLIMATE_PRESET_NONE;
-    }
+    this->preset = climate::CLIMATE_PRESET_NONE;
     if (this->sleep_select_) this->sleep_select_->publish_state(this->sleep_str_(this->pending_sleep_));
     
     this->publish_state();
@@ -700,19 +688,11 @@ climate::ClimateTraits PioneerMinisplit::traits() {
   
 #if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 4, 0)
   // Pre-2026.4.0: Set custom fan modes on traits (old API)
-  traits.set_supported_custom_fan_modes({"Mid-Low", "Mid-High", "Strong", "Mute"});
+  traits.set_supported_custom_fan_modes({"Mute", "Low-Mid", "Mid-High", "Turbo"});
 #endif
   // 2026.4.0+: Custom fan modes are set in setup() and wired automatically
   
   // Swing modes removed from climate - use separate select entities instead
-  
-  // Standard presets
-  traits.set_supported_presets({
-    climate::CLIMATE_PRESET_NONE,
-    climate::CLIMATE_PRESET_ECO,
-    climate::CLIMATE_PRESET_BOOST,
-    climate::CLIMATE_PRESET_SLEEP,
-  });
   
   return traits;
 }
@@ -750,6 +730,45 @@ void PioneerMinisplit::set_feature(SwitchType type, bool state) {
       break;
     case SWITCH_HEATER_8C:
       this->pending_8c_heater_ = state;
+      break;
+    case SWITCH_ECO:
+      this->pending_eco_ = state;
+      if (state) {
+        this->pending_turbo_ = false;
+        this->pending_sleep_ = 0;
+      }
+      break;
+    case SWITCH_TURBO:
+      this->pending_turbo_ = state;
+      if (state) {
+        this->pending_fan_ = bb_protocol::TX_FAN_HIGH;
+        this->pending_eco_ = false;
+        this->pending_sleep_ = 0;
+        this->pending_mute_ = false;
+      }
+      break;
+    case SWITCH_MUTE:
+      this->pending_mute_ = state;
+      if (state) {
+        this->pending_fan_ = bb_protocol::TX_FAN_LOW;
+        this->pending_turbo_ = false;
+      }
+      break;
+    case SWITCH_SLEEP:
+      this->pending_sleep_ = state ? 1 : 0;
+      if (state) {
+        this->pending_eco_ = false;
+        this->pending_turbo_ = false;
+        this->pending_mute_ = false;
+      }
+      break;
+    case SWITCH_SWING_V:
+      this->pending_swing_v_dirty_ = true;
+      this->pending_swing_v_ = state ? 0x08 : 0x00;
+      break;
+    case SWITCH_SWING_H:
+      this->pending_swing_h_dirty_ = true;
+      this->pending_swing_h_ = state ? 0x88 : 0x80;
       break;
   }
   this->command_pending_ = true;

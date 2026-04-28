@@ -80,22 +80,24 @@ pioneer_minisplit:
   # ============================================
   display_switch:
     name: "Display"
-  beep_switch:
-    name: "Beep"
-  health_switch:
-    name: "Health Ion"
+  eco_switch:
+    name: "Eco"
+  turbo_switch:
+    name: "Turbo"
+  mute_switch:
+    name: "Mute"
+  sleep_switch:
+    name: "Sleep"
   heater_8c_switch:
-    name: "Frost Prevention"
+    name: "Freeze Protection"
   
   # ============================================
-  # SWING POSITION CONTROLS
+  # LOUVER MOTOR CONTROLS
   # ============================================
-  swing_v_select:
-    name: "Vertical Position"
-  swing_h_select:
-    name: "Horizontal Position"
-  sleep_select:
-    name: "Sleep Mode"
+  swing_v_switch:
+    name: "Up-Down Louver"
+  swing_h_switch:
+    name: "Left-Right Louver"
 
 # ============================================
 # OPTIONAL: Status LED

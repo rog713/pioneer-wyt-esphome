@@ -21,6 +21,12 @@ enum SwitchType : uint8_t {
   SWITCH_BEEP = 1,
   SWITCH_HEALTH = 2,
   SWITCH_HEATER_8C = 3,
+  SWITCH_ECO = 4,
+  SWITCH_TURBO = 5,
+  SWITCH_MUTE = 6,
+  SWITCH_SLEEP = 7,
+  SWITCH_SWING_V = 8,
+  SWITCH_SWING_H = 9,
 };
 
 // Select types
@@ -74,6 +80,12 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   void set_beep_switch(PioneerSwitch *sw) { this->beep_switch_ = sw; }
   void set_health_switch(PioneerSwitch *sw) { this->health_switch_ = sw; }
   void set_heater_8c_switch(PioneerSwitch *sw) { this->heater_8c_switch_ = sw; }
+  void set_eco_switch(PioneerSwitch *sw) { this->eco_switch_ = sw; }
+  void set_turbo_switch(PioneerSwitch *sw) { this->turbo_switch_ = sw; }
+  void set_mute_switch(PioneerSwitch *sw) { this->mute_switch_ = sw; }
+  void set_sleep_switch(PioneerSwitch *sw) { this->sleep_switch_ = sw; }
+  void set_swing_v_switch(PioneerSwitch *sw) { this->swing_v_switch_ = sw; }
+  void set_swing_h_switch(PioneerSwitch *sw) { this->swing_h_switch_ = sw; }
 
   // Select setters
   void set_swing_v_select(PioneerSelect *sel) { this->swing_v_select_ = sel; }
@@ -175,6 +187,12 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   PioneerSwitch *beep_switch_{nullptr};
   PioneerSwitch *health_switch_{nullptr};
   PioneerSwitch *heater_8c_switch_{nullptr};
+  PioneerSwitch *eco_switch_{nullptr};
+  PioneerSwitch *turbo_switch_{nullptr};
+  PioneerSwitch *mute_switch_{nullptr};
+  PioneerSwitch *sleep_switch_{nullptr};
+  PioneerSwitch *swing_v_switch_{nullptr};
+  PioneerSwitch *swing_h_switch_{nullptr};
 
   // Selects
   PioneerSelect *swing_v_select_{nullptr};
