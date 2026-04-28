@@ -10,6 +10,9 @@
 - **Vtronix Classic America** 12000 BTU Smart Mini Split AC/Heat Pump, 19 SEER2
 - **TYWE1S adapter board** P/N `2.22.01.00710` with sticker version `esp_air_DIM_tcl_8M_QIO_TLS_1.3`
 
+![TYWE1S TLS 1.3 PCB Front](images/tywe1s-tls13-front.jpg)
+![TYWE1S TLS 1.3 PCB Back](images/tywe1s-tls13-back.jpg)
+
 Should work with other units using the same [TST-DIAWIFITPD WiFi module](https://www.pioneerminisplit.com/products/wireless-internet-access-control-module-for-pioneer-diamante-series-systems) or similar Tuya-based modules with the BB protocol (9600 baud, 8E1).
 
 ## What It Does
