@@ -23,7 +23,7 @@ This fork is currently tuned for the tested **Pioneer WYT012GLSI20RL** remote/ma
 - Display toggle
 - Up-down and left-right louver motor toggles
 - 46°F freeze protection / 8°C heater
-- Sensors: indoor/outdoor temps, compressor freq, coil temps, fan speeds, current draw
+- Sensors: indoor and outdoor temperature
 
 ## Installation
 

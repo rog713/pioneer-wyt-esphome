@@ -69,7 +69,7 @@ The dumped Tuya firmware contains `off`, `normal`, `old`, `child`, and `auto` sl
 
 ### Production feature surface
 
-Production intentionally follows the WYT012GLSI20RL manual: mode, set temperature, fan including Mute/Low-Mid/Mid-High/Turbo, Eco, Sleep, 46°F freeze protection, Display, and up-down/left-right louver motor toggles. Remote-only features such as Timer, I Feel, Memory, and Child Lock are left to Home Assistant automations or the physical remote. Health/Ion is not exposed because it is not present in the provided manual.
+Production intentionally follows the WYT012GLSI20RL manual: mode, set temperature, fan including Mute/Low-Mid/Mid-High/Turbo, Eco, Sleep, 46°F freeze protection, Display, up-down/left-right louver motor toggles, and indoor/outdoor temperature. Remote-only features such as Timer, I Feel, Memory, and Child Lock are left to Home Assistant automations or the physical remote. Health/Ion is not exposed because it is not present in the provided manual. Current draw and compressor frequency are not exposed in production because those status bytes are not verified on this unit.
 
 ### Tuya features not yet mapped to BB serial
 

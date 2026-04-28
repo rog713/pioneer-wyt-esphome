@@ -68,14 +68,6 @@ pioneer_minisplit:
     name: "Outdoor Temperature"
   
   # ============================================
-  # OPERATING SENSORS
-  # ============================================
-  compressor_freq:
-    name: "Compressor Frequency"
-  current_amps:
-    name: "Current Draw"
-  
-  # ============================================
   # CONTROL SWITCHES
   # ============================================
   display_switch:
