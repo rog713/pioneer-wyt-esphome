@@ -495,7 +495,8 @@ async def to_code(config):
     if CONF_SWING_H_SELECT in config:
         sel = await select.new_select(config[CONF_SWING_H_SELECT], options=[
             "Off", "Auto Swing", "Swing Left", "Swing Center", "Swing Right",
-            "Fixed 1 (Far Left)", "Fixed 2 (Left)", "Fixed 3 (Center)", "Fixed 4 (Right)", "Fixed 5 (Far Right)"
+            "Fixed 1 (Far Left)", "Fixed 2 (Left)", "Fixed 3 (Center)", "Fixed 4 (Right)",
+            "Fixed 5 (Far Right)", "Fixed 6 (Rightmost)"
         ])
         cg.add(var.set_swing_h_select(sel))
         cg.add(sel.set_parent(var))
