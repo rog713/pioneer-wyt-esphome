@@ -61,7 +61,7 @@ Creates a climate entity with:
 - **Modes:** Off, Cool, Heat, Dry, Fan Only, Auto
 - **Fan:** Auto, Low, Medium, High, plus Mid-Low, Mid-High, Strong, and Mute as custom modes
 - **Presets:** Eco, Boost (Turbo), Sleep
-- **Swing:** Separate select entities for precise vertical/horizontal positioning
+- **Selects:** Sleep mode plus separate vertical/horizontal positioning controls
 
 ## TYWE1S TLS 1.3 Notes
 
@@ -81,6 +81,8 @@ Verified on `WYT012GLSI20RL`:
 | Mute | `0x3A` + mute flag | `0x09` + mute flag |
 
 The fan names match the TCL-style Tuya profiles used by Starlight and Daizuki heat pumps.
+
+The original firmware also exposes named sleep modes: `normal`, `old`, and `child`. ESPHome maps these to a `Sleep Mode` select with `Standard`, `Elderly`, and `Child` options.
 
 Horizontal swing is still being mapped on this board. Fan commands intentionally avoid resending stale swing bytes so changing fan speed does not disturb the louver state.
 

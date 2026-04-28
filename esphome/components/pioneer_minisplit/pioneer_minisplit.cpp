@@ -540,6 +540,9 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   if (this->swing_h_select_) {
     this->swing_h_select_->publish_state(this->swing_h_rx_str_(byte51, swing_h_active));
   }
+  if (this->sleep_select_) {
+    this->sleep_select_->publish_state(this->sleep_str_(sleep_mode));
+  }
 }
 
 const char* PioneerMinisplit::mode_str_(uint8_t mode) {
@@ -741,6 +744,7 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     } else {
       this->preset = climate::CLIMATE_PRESET_NONE;
     }
+    if (this->sleep_select_) this->sleep_select_->publish_state(this->sleep_str_(this->pending_sleep_));
     
     this->publish_state();
   }
@@ -834,7 +838,23 @@ void PioneerMinisplit::set_swing_position(SelectType type, const std::string &va
     return;
   }
   
-  if (type == SELECT_SWING_V) {
+  if (type == SELECT_SLEEP) {
+    if (value == "Off") {
+      this->pending_sleep_ = 0;
+    } else if (value == "Standard") {
+      this->pending_sleep_ = 1;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    } else if (value == "Elderly") {
+      this->pending_sleep_ = 2;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    } else if (value == "Child") {
+      this->pending_sleep_ = 3;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    }
+  } else if (type == SELECT_SWING_V) {
     this->pending_swing_v_dirty_ = true;
     // Vertical swing positions from PROTOCOL.md
     // TX: 0x08=Auto Swing, 0x88=Swing Upper, 0x48=Swing Lower

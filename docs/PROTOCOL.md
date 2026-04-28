@@ -165,6 +165,21 @@ Quick reference for TX vs RX encoding:
 
 ---
 
+## Sleep Modes
+
+The original Tuya firmware exposes sleep mode names `off`, `normal`, `old`, `child`, and an additional `auto` string. The ESPHome component maps the verified controllable modes:
+
+| TX Value | TLS 1.3 RX | Name |
+|----------|------------|------|
+| 0 | 0xB0 | Off |
+| 1 | 0xB1 | Standard |
+| 2 | 0xB2 | Elderly |
+| 3 | 0xB3 | Child |
+
+The older protocol captures used `0x88-0x8B` for the same status range.
+
+---
+
 ## Swing Positions
 
 ### Vertical (TX byte 31, RX byte 51)

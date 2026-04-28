@@ -51,6 +51,10 @@ The HVAC doesn't report beep state back. You can send the command but can't read
 
 Starlight and Daizuki Tuya-local profiles expose the same fan names: `auto`, `mute`, `low`, `mid_low`, `mid`, `mid_high`, `high`, and `strong`. On the tested `WYT012GLSI20RL` / `esp_air_DIM_tcl_8M_QIO_TLS_1.3` board, `Mid-Low` and `Mid-High` are verified over the BB protocol as TX `0x3E`/`0x3F` and RX nibbles `0x0C`/`0x0D`.
 
+### Sleep mode names
+
+The dumped Tuya firmware contains `off`, `normal`, `old`, `child`, and `auto` sleep strings. ESPHome exposes the verified command/status range through a `Sleep Mode` select: Off, Standard, Elderly, and Child.
+
 ### Tuya features not yet mapped to BB serial
 
 The Starlight and Daizuki Tuya profiles also include DPS-backed features such as soft wind, anti-mildew, filter status, and fault codes. Those DPS IDs do not directly identify the BB UART bytes, so they should not be exposed in ESPHome until their serial command/status bytes are captured.

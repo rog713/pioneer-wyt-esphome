@@ -101,6 +101,7 @@ CONF_HEATER_8C_SWITCH = "heater_8c_switch"
 # Select config keys
 CONF_SWING_V_SELECT = "swing_v_select"
 CONF_SWING_H_SELECT = "swing_h_select"
+CONF_SLEEP_SELECT = "sleep_select"
 
 CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     cv.GenerateID(): cv.declare_id(PioneerMinisplit),
@@ -247,6 +248,7 @@ CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     # Swing position selects
     cv.Optional(CONF_SWING_V_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-up-down"),
     cv.Optional(CONF_SWING_H_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-left-right"),
+    cv.Optional(CONF_SLEEP_SELECT): select.select_schema(PioneerSelect, icon="mdi:sleep"),
 }).extend(cv.COMPONENT_SCHEMA).extend(uart.UART_DEVICE_SCHEMA)
 
 async def to_code(config):
@@ -501,3 +503,10 @@ async def to_code(config):
         cg.add(var.set_swing_h_select(sel))
         cg.add(sel.set_parent(var))
         cg.add(sel.set_type(1))  # SWING_H
+    if CONF_SLEEP_SELECT in config:
+        sel = await select.new_select(config[CONF_SLEEP_SELECT], options=[
+            "Off", "Standard", "Elderly", "Child"
+        ])
+        cg.add(var.set_sleep_select(sel))
+        cg.add(sel.set_parent(var))
+        cg.add(sel.set_type(2))  # SLEEP

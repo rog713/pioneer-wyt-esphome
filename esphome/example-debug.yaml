@@ -237,6 +237,8 @@ pioneer_minisplit:
     name: "Vertical Position"
   swing_h_select:
     name: "Horizontal Position"
+  sleep_select:
+    name: "Sleep Mode Control"
 
 # Status LED
 output:
