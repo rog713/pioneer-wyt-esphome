@@ -17,13 +17,15 @@ This fork is currently tuned for the tested **Pioneer WYT012GLSI20RL** remote/ma
 
 ## What It Does
 
-- Full climate control (mode, temp, fan)
+- Full climate control (mode, temp, fan); every command is built from the unit's own status, so settings it
+  doesn't touch (timers, louver positions) stay as they are
+- Optional whole-°F setpoints (61-89 °F) using the unit's own Fahrenheit mode
 - Eco, Turbo, Mute, Sleep modes
 - Fan speeds from the manual cycle: Auto, Mute, Low, Low-Mid, Medium, Mid-High, High, and Turbo
 - Display toggle; every command asks the unit to beep
 - Up-down and left-right louver motor toggles
 - 46°F freeze protection / 8°C heater
-- Sensors: indoor and outdoor temperature
+- Sensors: indoor and outdoor temperature, fault bits, and the unit's own energy meter (kWh and W)
 
 ## Installation
 
@@ -53,6 +55,17 @@ Two example configs are included:
 Both examples use the same component code. Production keeps the entity list small, while debug exposes raw packet and byte sensors so protocol changes can be verified before being used daily.
 
 Both require a `secrets.yaml` with your WiFi credentials and API keys. See `secrets.yaml.example`.
+
+### Options
+
+| Option | What |
+|--------|------|
+| `fahrenheit: true` | Setpoints in whole °F (61-89) in the unit's own Fahrenheit mode; without it, °C in half degrees |
+| `energy:` | The unit's running energy total (kWh, `total_increasing`, for the Energy dashboard) |
+| `power_usage:` | Average power over each 2-minute update (W) |
+| `fault:` | Text sensor: "None" or the fault bits the unit reports |
+| `energy_query: true` | Ask for the energy counters without the sensors (on by itself with `energy` or `power_usage`) |
+| `energy_raw:` | Text sensor with the raw energy reply, for debugging |
 
 ## Climate Entity
 

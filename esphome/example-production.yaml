@@ -60,7 +60,20 @@ uart:
 # Pioneer Mini Split Controller
 pioneer_minisplit:
   name: "${device_verbose_name}"
-  
+  # Optional: setpoints in whole °F (61-89) in the unit's own Fahrenheit mode.
+  # fahrenheit: true
+
+  # ============================================
+  # ENERGY (the unit's own meter) AND FAULTS
+  # ============================================
+  energy:
+    name: "Energy"
+  power_usage:
+    name: "Power"
+  fault:
+    name: "Fault"
+    entity_category: diagnostic
+
   # ============================================
   # TEMPERATURE SENSORS (HA converts to your preferred unit)
   # ============================================

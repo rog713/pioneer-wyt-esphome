@@ -7,6 +7,11 @@ from esphome.const import (
     ICON_THERMOMETER,
     DEVICE_CLASS_TEMPERATURE,
     STATE_CLASS_MEASUREMENT,
+    UNIT_KILOWATT_HOURS,
+    UNIT_WATT,
+    DEVICE_CLASS_ENERGY,
+    DEVICE_CLASS_POWER,
+    STATE_CLASS_TOTAL_INCREASING,
 )
 
 DEPENDENCIES = ["uart"]
@@ -91,6 +96,16 @@ CONF_OUTDOOR_FAN_SPEED = "outdoor_fan_speed"  # Byte 39
 CONF_CURRENT_AMPS = "current_amps"  # Byte 46
 CONF_HEAT_MODE_ACTIVE = "heat_mode_active"  # Byte 40 bit 6
 CONF_OUTDOOR_RUNNING = "outdoor_running"  # Byte 40 bits 0-3 (0x00=Idle, 0x0A=Running)
+
+# Setpoints in whole °F (61-89) using the unit's Fahrenheit mode; otherwise °C in half degrees.
+CONF_FAHRENHEIT = "fahrenheit"
+# Asks the unit for its energy counters every third poll and reports the raw reply (experimental).
+CONF_ENERGY_QUERY = "energy_query"
+CONF_FAULT = "fault"
+CONF_ENERGY_RAW = "energy_raw"
+# The unit's own energy total (kWh) and the average power over each 2-minute tick (W); either turns energy_query on.
+CONF_ENERGY = "energy"
+CONF_POWER_USAGE = "power_usage"
 
 # Switch config keys (only for features not covered by climate presets/modes)
 CONF_DISPLAY_SWITCH = "display_switch"
@@ -246,6 +261,22 @@ CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     ),
     cv.Optional(CONF_HEAT_MODE_ACTIVE): text_sensor.text_sensor_schema(icon="mdi:fire"),
     cv.Optional(CONF_OUTDOOR_RUNNING): text_sensor.text_sensor_schema(icon="mdi:fan"),
+    cv.Optional(CONF_FAHRENHEIT, default=False): cv.boolean,
+    cv.Optional(CONF_ENERGY_QUERY, default=False): cv.boolean,
+    cv.Optional(CONF_FAULT): text_sensor.text_sensor_schema(icon="mdi:alert-circle-outline"),
+    cv.Optional(CONF_ENERGY_RAW): text_sensor.text_sensor_schema(icon="mdi:lightning-bolt-outline"),
+    cv.Optional(CONF_ENERGY): sensor.sensor_schema(
+        unit_of_measurement=UNIT_KILOWATT_HOURS,
+        accuracy_decimals=3,
+        device_class=DEVICE_CLASS_ENERGY,
+        state_class=STATE_CLASS_TOTAL_INCREASING,
+    ),
+    cv.Optional(CONF_POWER_USAGE): sensor.sensor_schema(
+        unit_of_measurement=UNIT_WATT,
+        accuracy_decimals=0,
+        device_class=DEVICE_CLASS_POWER,
+        state_class=STATE_CLASS_MEASUREMENT,
+    ),
     # Control switches (features not covered by climate presets/modes)
     cv.Optional(CONF_DISPLAY_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:monitor"),
     cv.Optional(CONF_BEEP_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:volume-high"),
@@ -268,6 +299,22 @@ async def to_code(config):
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
     await climate.register_climate(var, config)
+    cg.add(var.set_fahrenheit(config[CONF_FAHRENHEIT]))
+    cg.add(var.set_energy_query(
+        config[CONF_ENERGY_QUERY] or CONF_ENERGY in config or CONF_POWER_USAGE in config
+    ))
+    if CONF_FAULT in config:
+        sens = await text_sensor.new_text_sensor(config[CONF_FAULT])
+        cg.add(var.set_fault_sensor(sens))
+    if CONF_ENERGY_RAW in config:
+        sens = await text_sensor.new_text_sensor(config[CONF_ENERGY_RAW])
+        cg.add(var.set_energy_raw_sensor(sens))
+    if CONF_ENERGY in config:
+        sens = await sensor.new_sensor(config[CONF_ENERGY])
+        cg.add(var.set_energy_sensor(sens))
+    if CONF_POWER_USAGE in config:
+        sens = await sensor.new_sensor(config[CONF_POWER_USAGE])
+        cg.add(var.set_power_usage_sensor(sens))
     
     # Sensors
     if CONF_SET_TEMP in config:
@@ -547,7 +594,7 @@ async def to_code(config):
         cg.add(sel.set_type(1))  # SWING_H
     if CONF_SLEEP_SELECT in config:
         sel = await select.new_select(config[CONF_SLEEP_SELECT], options=[
-            "Off", "Standard", "Elderly", "Child"
+            "Off", "Standard", "Elderly", "Child", "Auto"
         ])
         cg.add(var.set_sleep_select(sel))
         cg.add(sel.set_parent(var))

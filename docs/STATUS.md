@@ -17,7 +17,10 @@ What's working, what's not, and what's still being figured out.
 | Timer Active | 9 bit 6 | |
 | Swing V Active | 10 bit 6 | |
 | Swing H Active | 10 bit 5 | |
-| Current Temp | 17-18 | BE16 / 374 → °F |
+| Current Temp | 17-18 | `(b17 × 4 + ((b18 >> 2) & 3) − 200) / 10` °C (stock firmware) |
+| Fahrenheit mode | 10 bit 7 | the unit's own °F mode; extra degree in 9 bit 0 |
+| Fault bits | 16, 41, 42, 44, 56 | the stock firmware's 25-bit bitmap |
+| Energy | 0x0A reply | running kWh total (BCD) and on-time ticks; power from the change per 2-minute tick |
 | Sleep Mode | 19 | Older captures: 0x88=off, 0x89-8B=modes. TLS 1.3 board: 0xB0=off, 0xB1-B3=modes |
 | 8°C Heater | 32 bit 7 | |
 | Mute | 33 bit 7 | |
@@ -50,6 +53,17 @@ This keeps the verified control path separate from guessed status decoding. New 
 | 52 | 0x08-0x0F changed while scanning fan and feature TX bytes | Not just horizontal louver position on TLS 1.3 board |
 
 ## Notes
+
+### One frame at a time
+
+The unit drops a command that arrives while it is answering the previous frame. The component waits for each reply
+(SET 600 ms, status and energy 400 ms), leaves 100 ms between frames, and retries an unanswered SET up to three
+times.
+
+### SET is built from the unit's status
+
+As in the stock firmware, every SET starts from the last status, so timers, louver positions, Fahrenheit mode and
+the Eco setpoint are sent back unchanged.
 
 ### The "room temperature" isn't room temperature
 

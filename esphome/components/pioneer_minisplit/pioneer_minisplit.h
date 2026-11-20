@@ -70,8 +70,8 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   void control(const climate::ClimateCall &call) override;
   climate::ClimateTraits traits() override;
 
-  // Called by switches
-  void set_feature(SwitchType type, bool state);
+  // Called by switches; false when the unit's current mode does not allow the change.
+  bool set_feature(SwitchType type, bool state);
   // Called by selects
   void set_swing_position(SelectType type, const std::string &value);
   void queue_command() { this->command_pending_ = true; }
@@ -154,6 +154,16 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   void set_debug_pair_35_36_state_sensor(sensor::Sensor *s) { debug_pair_35_36_state_ = s; }
   void set_debug_pair_36_37_state_sensor(sensor::Sensor *s) { debug_pair_36_37_state_ = s; }
 
+  // Setpoints in whole °F (61-89) using the unit's own Fahrenheit mode; otherwise °C in half degrees.
+  void set_fahrenheit(bool f) { this->fahrenheit_ = f; }
+  // Asks the unit for its energy counters every third poll and reports the raw reply (experimental).
+  void set_energy_query(bool q) { this->energy_query_ = q; }
+  void set_fault_sensor(text_sensor::TextSensor *s) { fault_sensor_ = s; }
+  void set_energy_raw_sensor(text_sensor::TextSensor *s) { energy_raw_sensor_ = s; }
+  // The unit's own energy total (kWh) and the average power over each 2-minute tick (W), from the energy replies.
+  void set_energy_sensor(sensor::Sensor *s) { energy_sensor_ = s; }
+  void set_power_usage_sensor(sensor::Sensor *s) { power_usage_sensor_ = s; }
+
   // Outdoor/compressor sensors
   void set_outdoor_temp_sensor(sensor::Sensor *s) { outdoor_temp_sensor_ = s; }
   void set_condenser_coil_temp_sensor(sensor::Sensor *s) { condenser_coil_temp_sensor_ = s; }
@@ -168,8 +178,13 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
  protected:
   void send_heartbeat_();
   void send_command_();
+  void send_set_frame_();
+  void send_energy_query_();
+  void expect_reply_(uint8_t cmd, uint32_t timeout);
+  void on_set_timeout_();
   void process_packet_(uint8_t *buf, size_t len);
   void decode_rx_packet_(uint8_t *buf, size_t len);
+  void handle_energy_packet_(uint8_t *buf, size_t len);
   uint8_t calculate_checksum_(const uint8_t *data, size_t len);
   std::string hex_string_(uint8_t *buf, size_t len);
   
@@ -216,11 +231,58 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   static const uint32_t HEARTBEAT_INTERVAL = 2000;
   static const uint32_t RX_TIMEOUT = 100;
   static const uint32_t COMMAND_COOLDOWN = 200;
-  static const uint32_t POST_COMMAND_STATUS_DELAY = 250;
-  static constexpr float TEMP_HYSTERESIS_C = 0.1f;
+  // A SET is sent again when the unit has not answered within this time, up to SET_MAX_ATTEMPTS in all (as the
+  // stock firmware does); only once the unit has been seen answering a SET.
+  static const uint32_t SET_REPLY_TIMEOUT = 600;
+  static const uint32_t STATUS_REPLY_TIMEOUT = 400;
+  // Quiet time after each frame from the unit before the next one goes out.
+  static const uint32_t FRAME_GAP = 100;
+  static const uint8_t SET_MAX_ATTEMPTS = 3;
+  static constexpr float TEMP_HYSTERESIS_C = 0.05f;
 
   // Indoor temperature as last published (°C); NAN until the first valid reading.
   float published_temp_c_{NAN};
+
+  // The SET payload: the unit's last status, copied the way the stock firmware does, with this side's changes on top.
+  uint8_t set_[bb_protocol::SET_PAYLOAD_LEN]{};
+  bool set_valid_{false};
+  std::array<uint8_t, bb_protocol::SET_PACKET_LEN> last_set_frame_{};
+  bool awaiting_set_reply_{false};
+  // The frame in flight: its command, when it went out and how long to wait for the unit's answer.
+  uint8_t awaiting_cmd_{0};
+  uint32_t awaiting_since_{0};
+  uint32_t awaiting_timeout_{0};
+  uint32_t tx_block_until_{0};
+  bool resend_set_{false};
+  // SETs sent but not yet answered: a reply that arrives while a newer SET is out answers the older one.
+  uint8_t replies_expected_{0};
+  // The fan each mode last ran with, by SET mode code, so a mode change starts from it (stock behaviour).
+  struct ModeFan {
+    uint8_t fan;
+    bool turbo;
+    bool mute;
+    bool seen;
+  };
+  ModeFan mode_fan_[16]{};
+  bool set_replies_seen_{false};
+  uint8_t set_attempts_{0};
+  bool fahrenheit_{false};
+  // The unit's own Fahrenheit mode, as last reported. A SET that switches the unit into it applies the base °C
+  // but drops the extra-°F bit, so an odd °F asked for during the switch is sent again once the unit reports °F.
+  bool unit_fahrenheit_{false};
+  int pending_f_{-1};
+  bool fahrenheit_switch_sent_{false};
+  bool energy_query_{false};
+  uint8_t heartbeat_count_{0};
+  bool energy_query_pending_{false};
+  bool first_status_logged_{false};
+  uint32_t last_status_key_{0};
+  text_sensor::TextSensor *fault_sensor_{nullptr};
+  text_sensor::TextSensor *energy_raw_sensor_{nullptr};
+  sensor::Sensor *energy_sensor_{nullptr};
+  sensor::Sensor *power_usage_sensor_{nullptr};
+  bb_protocol::EnergyReading last_energy_{};
+  bool have_energy_{false};
 
   // History for unknown bytes
   uint8_t byte30_history_[5] = {0};
@@ -229,27 +291,6 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   uint8_t byte36_history_[5] = {0};
   uint8_t byte37_history_[5] = {0};
 
-  // TX pending state
-  bool pending_power_ = false;
-  uint8_t pending_mode_ = bb_protocol::TX_MODE_COOL;
-  uint8_t pending_fan_ = bb_protocol::TX_FAN_AUTO;
-  uint8_t pending_temp_ = 24;
-  uint8_t pending_swing_v_ = 0x08;
-  uint8_t pending_swing_h_ = 0x80;
-  bool pending_swing_v_active_ = false;
-  bool pending_swing_v_dirty_ = false;
-  bool pending_swing_h_dirty_ = false;
-  bool pending_display_ = true;
-  bool pending_beep_ = true;
-  bool pending_eco_ = false;
-  bool pending_turbo_ = false;
-  bool pending_health_ = false;
-  bool pending_mute_ = false;
-  bool pending_8c_heater_ = false;
-  uint8_t pending_sleep_ = 0;
-  
-  // Track if we've synced state from HVAC at least once
-  bool state_synced_ = false;
 
   // Sensors
   sensor::Sensor *set_temp_sensor_{nullptr};

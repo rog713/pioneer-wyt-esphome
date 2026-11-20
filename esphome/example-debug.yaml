@@ -55,6 +55,14 @@ uart:
 
 pioneer_minisplit:
   name: "${device_verbose_name}"
+  energy:
+    name: "Energy"
+  power_usage:
+    name: "Power"
+  fault:
+    name: "Fault"
+  energy_raw:
+    name: "Energy raw"
   
   # ============================================
   # TEMPERATURE SENSORS (HA converts to your preferred unit)
