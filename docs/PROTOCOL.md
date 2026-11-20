@@ -34,7 +34,7 @@ Stop:   1 bit
 
 ### Heartbeat (0x04)
 
-8 bytes. Sent every ~3 seconds to poll status.
+8 bytes. Sent every 2 seconds to poll status, and 250 ms after each SET command to confirm it without waiting for the next poll. SET commands are spaced at least 200 ms apart.
 
 ```
 BB 00 01 04 02 01 00 [checksum]

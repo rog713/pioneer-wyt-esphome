@@ -207,13 +207,15 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   // Timing
   uint32_t last_heartbeat_ = 0;
   uint32_t last_command_ = 0;
+  bool post_command_status_pending_ = false;
   bool command_pending_ = false;
   uint32_t tx_count_ = 0;
   uint32_t rx_count_ = 0;
   
-  static const uint32_t HEARTBEAT_INTERVAL = 3000;
+  static const uint32_t HEARTBEAT_INTERVAL = 2000;
   static const uint32_t RX_TIMEOUT = 100;
-  static const uint32_t COMMAND_COOLDOWN = 500;
+  static const uint32_t COMMAND_COOLDOWN = 200;
+  static const uint32_t POST_COMMAND_STATUS_DELAY = 250;
 
   // History for unknown bytes
   uint8_t byte30_history_[5] = {0};
@@ -233,7 +235,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   bool pending_swing_v_dirty_ = false;
   bool pending_swing_h_dirty_ = false;
   bool pending_display_ = true;
-  bool pending_beep_ = false;
+  bool pending_beep_ = true;
   bool pending_eco_ = false;
   bool pending_turbo_ = false;
   bool pending_health_ = false;

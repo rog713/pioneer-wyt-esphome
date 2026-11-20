@@ -29,6 +29,8 @@ wifi:
 captive_portal:
 
 api:
+  # Sends state changes to Home Assistant sooner than the default batching.
+  batch_delay: 50ms
   encryption:
     key: !secret api_key
 
@@ -72,8 +74,6 @@ pioneer_minisplit:
   # ============================================
   display_switch:
     name: "Display"
-  beep_switch:
-    name: "Beep"
   eco_switch:
     name: "Eco"
   turbo_switch:

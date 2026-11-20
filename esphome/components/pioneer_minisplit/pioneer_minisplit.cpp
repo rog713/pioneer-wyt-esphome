@@ -26,6 +26,7 @@ std::string PioneerMinisplit::format_history_(uint8_t *history) {
 void PioneerMinisplit::setup() {
   ESP_LOGI(TAG, "Pioneer Mini Split Controller Started");
   ESP_LOGI(TAG, "Protocol: 9600 8E1, XOR checksum");
+  if (this->beep_switch_) this->beep_switch_->publish_state(true);
   
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 4, 0)
   // ESPHome 2026.4.0+: Set custom modes on entity (new API)
@@ -44,17 +45,22 @@ void PioneerMinisplit::dump_config() {
 void PioneerMinisplit::loop() {
   uint32_t now = millis();
   
-  // Send heartbeat every 3 seconds
-  if (now - this->last_heartbeat_ >= HEARTBEAT_INTERVAL) {
-    this->send_heartbeat_();
-    this->last_heartbeat_ = now;
-  }
-  
   // Send pending command after cooldown
   if (this->command_pending_ && (now - this->last_command_) >= COMMAND_COOLDOWN) {
     this->send_command_();
     this->command_pending_ = false;
     this->last_command_ = now;
+    this->post_command_status_pending_ = true;
+  }
+
+  // Confirm command results quickly without waiting for the normal status poll.
+  if (this->post_command_status_pending_ && (now - this->last_command_) >= POST_COMMAND_STATUS_DELAY) {
+    this->send_heartbeat_();
+    this->last_heartbeat_ = now;
+    this->post_command_status_pending_ = false;
+  } else if (now - this->last_heartbeat_ >= HEARTBEAT_INTERVAL) {
+    this->send_heartbeat_();
+    this->last_heartbeat_ = now;
   }
   
   // Read incoming data
@@ -477,7 +483,8 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     if (this->sleep_switch_) this->sleep_switch_->publish_state(sleep_mode > 0);
     if (this->swing_v_switch_) this->swing_v_switch_->publish_state(swing_v_active);
     if (this->swing_h_switch_) this->swing_h_switch_->publish_state(swing_h_active);
-    // Note: beep_switch_ state is TX only, can't read from RX
+    // Beep is TX-only and intentionally always enabled for outgoing commands.
+    if (this->beep_switch_) this->beep_switch_->publish_state(true);
   }
 
   // Update select states from RX data
@@ -705,6 +712,10 @@ climate::ClimateTraits PioneerMinisplit::traits() {
 void PioneerSwitch::write_state(bool state) {
   if (this->parent_ == nullptr) return;
   this->parent_->set_feature(static_cast<SwitchType>(this->type_), state);
+  if (this->type_ == SWITCH_BEEP) {
+    this->publish_state(true);
+    return;
+  }
   this->publish_state(state);
 }
 
@@ -727,7 +738,7 @@ void PioneerMinisplit::set_feature(SwitchType type, bool state) {
       this->pending_display_ = state;
       break;
     case SWITCH_BEEP:
-      this->pending_beep_ = state;
+      this->pending_beep_ = true;
       break;
     case SWITCH_HEALTH:
       this->pending_health_ = state;
