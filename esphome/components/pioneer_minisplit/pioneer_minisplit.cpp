@@ -179,6 +179,13 @@ void PioneerMinisplit::process_packet_(uint8_t *buf, size_t len) {
   
   // Only decode cmd 0x04 status packets from HVAC (BB 01 00 04 ...)
   if (buf[1] == 0x01 && buf[2] == 0x00 && buf[3] == 0x04 && checksum_ok) {
+    // While a command waits to be sent, or has been sent but the status read after it has not gone out yet, any
+    // status received answers an earlier request and still shows the old settings. Decoding it would publish the
+    // old state and could carry it into the next command, so wait for the read that follows the command.
+    if (this->command_pending_ || this->post_command_status_pending_) {
+      ESP_LOGD(TAG, "Skipping status from before the last command");
+      return;
+    }
     this->decode_rx_packet_(buf, len);
   }
 }
@@ -229,12 +236,20 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   // Current temp: bytes 17-18 BE / 374 = °F
   float current_temp = 0;
   float current_temp_f = 0;
+  bool current_temp_valid = false;
   if (len >= 19) {
     uint16_t raw = (uint16_t(buf[17]) << 8) | buf[18];
     if (raw > 0 && raw < 65000) {
       current_temp_f = float(raw) / 374.0f;
       current_temp = (current_temp_f - 32.0f) / 1.8f;
+      current_temp_valid = true;
     }
+  }
+  // The reading flips between two adjacent values (about 0.05 °C apart) while the room is steady, so only move the
+  // published value once it changes by TEMP_HYSTERESIS_C.
+  if (current_temp_valid && (std::isnan(this->published_temp_c_) ||
+                             std::fabs(current_temp - this->published_temp_c_) >= TEMP_HYSTERESIS_C)) {
+    this->published_temp_c_ = current_temp;
   }
   
   ESP_LOGD(TAG, "RX: %s %s %dC %.1fC fan=%X",
@@ -242,8 +257,8 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   
   // Update sensors (publish Celsius - HA will convert to user's preferred unit)
   if (this->set_temp_sensor_) this->set_temp_sensor_->publish_state((float)set_temp);
-  if (current_temp > 0) {
-    if (this->current_temp_sensor_) this->current_temp_sensor_->publish_state(current_temp);
+  if (!std::isnan(this->published_temp_c_)) {
+    if (this->current_temp_sensor_) this->current_temp_sensor_->publish_state(this->published_temp_c_);
   }
   
   if (len > 30) {
@@ -403,18 +418,42 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   }
   
   
-  // Update climate entity from RX data ONLY
+  // Update climate entity from RX data ONLY.
+  // The action follows the outdoor unit (byte 40 bits 0-3: 0x00 idle, 0x0A running; bit 6 set while heating), so
+  // the entity says Idle once the room has reached the setpoint. A short packet without byte 40 counts as running.
+  const bool outdoor_known = len > 40;
+  const bool outdoor_running = !outdoor_known || (buf[40] & 0x0F) != 0x00;
+  const bool outdoor_heating = outdoor_known && (buf[40] & 0x40) != 0;
   if (!power) {
     this->mode = climate::CLIMATE_MODE_OFF;
     this->action = climate::CLIMATE_ACTION_OFF;
   } else {
     // RX mode: 01=Cool, 02=Fan, 03=Dry, 04=Heat, 05=Auto
     switch (mode) {
-      case 0x01: this->mode = climate::CLIMATE_MODE_COOL; this->action = climate::CLIMATE_ACTION_COOLING; break;
-      case 0x02: this->mode = climate::CLIMATE_MODE_FAN_ONLY; this->action = climate::CLIMATE_ACTION_FAN; break;
-      case 0x03: this->mode = climate::CLIMATE_MODE_DRY; this->action = climate::CLIMATE_ACTION_DRYING; break;
-      case 0x04: this->mode = climate::CLIMATE_MODE_HEAT; this->action = climate::CLIMATE_ACTION_HEATING; break;
-      case 0x05: this->mode = climate::CLIMATE_MODE_HEAT_COOL; this->action = climate::CLIMATE_ACTION_IDLE; break;
+      case 0x01:
+        this->mode = climate::CLIMATE_MODE_COOL;
+        this->action = outdoor_running ? climate::CLIMATE_ACTION_COOLING : climate::CLIMATE_ACTION_IDLE;
+        break;
+      case 0x02:
+        this->mode = climate::CLIMATE_MODE_FAN_ONLY;
+        this->action = climate::CLIMATE_ACTION_FAN;
+        break;
+      case 0x03:
+        this->mode = climate::CLIMATE_MODE_DRY;
+        this->action = outdoor_running ? climate::CLIMATE_ACTION_DRYING : climate::CLIMATE_ACTION_IDLE;
+        break;
+      case 0x04:
+        this->mode = climate::CLIMATE_MODE_HEAT;
+        this->action = outdoor_running ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE;
+        break;
+      case 0x05:
+        this->mode = climate::CLIMATE_MODE_HEAT_COOL;
+        if (!outdoor_known || !outdoor_running) {
+          this->action = climate::CLIMATE_ACTION_IDLE;
+        } else {
+          this->action = outdoor_heating ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_COOLING;
+        }
+        break;
       default: this->mode = climate::CLIMATE_MODE_OFF; break;
     }
   }
@@ -448,7 +487,7 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   else this->swing_mode = climate::CLIMATE_SWING_OFF;
   
   this->target_temperature = set_temp;
-  this->current_temperature = current_temp;
+  if (!std::isnan(this->published_temp_c_)) this->current_temperature = this->published_temp_c_;
   this->publish_state();
   
   // Only sync pending state from RX when no command is pending
@@ -462,6 +501,8 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     this->pending_health_ = health;
     this->pending_mute_ = mute_flag;
     this->pending_8c_heater_ = heater_8c;
+    // Without this, the next command would send the last sleep value set here and undo one set on the remote.
+    this->pending_sleep_ = sleep_mode;
     this->pending_swing_v_active_ = swing_v_active;
     
     uint8_t tx_mode = bb_protocol::tx_mode_from_rx(mode);

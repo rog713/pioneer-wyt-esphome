@@ -59,6 +59,29 @@ The indoor temp sensor (bytes 17-18) matches what the Tuya app shows, but it's m
 
 The HVAC doesn't report beep state back. The component sends the beep flag on every command, so changes made from Home Assistant are acknowledged audibly like the remote's; a `Beep` switch, if configured, always reports on. Production no longer exposes it.
 
+### Heating and cooling follow the outdoor unit
+
+The climate action comes from byte 40: `idle` while the outdoor unit is idle (bits 0-3 `0x00`, for example once the
+setpoint is reached), and heating, cooling or drying while it runs (`0x0A`). In Auto, bit 6 tells heating from cooling.
+Before this the action followed the mode, so a unit in Cool read `cooling` even when the room was below the setpoint.
+
+### Indoor temperature is smoothed
+
+With the room steady, bytes 17-18 flip between two adjacent values about 0.05 °C apart, which wrote a history row
+every minute or so. The component publishes a new indoor temperature only after it moves 0.1 °C. Readings below 0 °C
+are now published too (they were dropped).
+
+### Sleep set on the remote is kept
+
+Sleep is read back from byte 19 into the next command, so a change made from Home Assistant no longer clears a Sleep
+set on the remote, or brings back one cancelled there.
+
+### Status around a command is skipped
+
+A status packet that arrives while a command waits to be sent, or before the status read that follows it, answers an
+earlier poll and still shows the old settings. The component skips it instead of publishing the old state (and carrying
+it into the next command).
+
 ### TCL-style fan modes
 
 Starlight and Daizuki Tuya-local profiles expose the same fan names: `auto`, `mute`, `low`, `mid_low`, `mid`, `mid_high`, `high`, and `strong`. On the tested `WYT012GLSI20RL` / `esp_air_DIM_tcl_8M_QIO_TLS_1.3` board, `Low-Mid` and `Mid-High` are verified over the BB protocol as TX `0x3E`/`0x3F` and RX nibbles `0x0C`/`0x0D`.

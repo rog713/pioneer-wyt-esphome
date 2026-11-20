@@ -8,6 +8,7 @@
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/select/select.h"
 #include "bb_protocol.h"
+#include <cmath>
 
 namespace esphome {
 namespace pioneer_minisplit {
@@ -216,6 +217,10 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   static const uint32_t RX_TIMEOUT = 100;
   static const uint32_t COMMAND_COOLDOWN = 200;
   static const uint32_t POST_COMMAND_STATUS_DELAY = 250;
+  static constexpr float TEMP_HYSTERESIS_C = 0.1f;
+
+  // Indoor temperature as last published (°C); NAN until the first valid reading.
+  float published_temp_c_{NAN};
 
   // History for unknown bytes
   uint8_t byte30_history_[5] = {0};
