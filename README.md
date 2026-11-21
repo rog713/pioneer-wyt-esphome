@@ -63,6 +63,13 @@ branch adds a package that pauses the unit while the garage door is open, resume
 and keeps the garage between two temperature limits. It all runs on the ESP; Home Assistant only supplies the door's
 state. It lives on its own branch because most installs have no garage door to pair with; see that branch's README.
 
+### Optional: Thermostat Panel
+
+The [`thermostat-panel`](https://github.com/rog713/pioneer-wyt-esphome/tree/thermostat-panel/panel) branch has a
+wall thermostat for the mini-split: a Waveshare ESP32-S3-Touch-LCD-4.3 in portrait that controls it through Home
+Assistant (modes, setpoint, fan, Eco, Sleep, louvers, power and faults), and shows the garage safety screens when
+the mini-split runs that branch's package.
+
 ### Options
 
 | Option | What |
