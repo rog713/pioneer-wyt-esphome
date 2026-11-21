@@ -5,6 +5,8 @@ ESP32-S3-Touch-LCD-4.3 in portrait, talking to the mini-split through Home Assis
 
 ![The panel heating, cooling, in Auto, and with a unit fault](images/panel.jpg)
 
+![Fan only, off while Home Assistant is away, and the temperature guard's card](images/more-states.jpg)
+
 ## What It Shows
 
 - A dial with the setpoint (- and + in its opening), the indoor temperature, and chips for the power draw (in the
@@ -27,6 +29,8 @@ safety, and a card when the temperature guard turns the unit on. Without that pa
 the door screens never appear.
 
 ![Garage safety: door open, paused, door closed, heating for safety](images/garage-safety.jpg)
+
+![Paused with the dial showing, cooling for safety, heating with the door closed again, and the door-closed dial](images/more-garage-safety.jpg)
 
 ## Hardware
 

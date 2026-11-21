@@ -27,6 +27,17 @@ This fork is currently tuned for the tested **Pioneer WYT012GLSI20RL** remote/ma
 - 46°F freeze protection / 8°C heater
 - Sensors: indoor and outdoor temperature, fault bits, and the unit's own energy meter (kWh and W)
 
+## Thermostat Panel (this branch)
+
+This branch adds a wall thermostat for the mini-split in [`panel/`](panel/): a Waveshare ESP32-S3-Touch-LCD-4.3 in
+portrait that controls it through Home Assistant. With the
+[`garage-safety`](https://github.com/rog713/pioneer-wyt-esphome/tree/garage-safety) package on the mini-split it also
+shows the door pause and safety screens. Setup and every screen: [`panel/README.md`](panel/README.md).
+
+![The panel heating, cooling, in Auto, and with a unit fault](panel/images/panel.jpg)
+
+![Garage safety on the panel: door open, paused, door closed, heating for safety](panel/images/garage-safety.jpg)
+
 ## Installation
 
 ### Option 1: Copy the component
