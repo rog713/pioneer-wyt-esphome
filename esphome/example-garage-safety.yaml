@@ -1,0 +1,141 @@
+# Pioneer Mini Split - Production Configuration with garage safety
+#
+# example-production.yaml plus garage-safety.yaml: a mini-split in a garage that pauses while the garage door is
+# open and keeps the garage between two temperature limits. See garage-safety.yaml for how it works.
+# Copy both files and customize for your device.
+
+substitutions:
+  node_name: my-minisplit
+  device_verbose_name: "My Mini Split"
+  # Garage safety: your garage door in Home Assistant (a cover, with or without a position, or a binary sensor such
+  # as a door contact), how long without a door reading before a pause is undone (ms; keep it under the API's
+  # 15-minute restart), and how long the garage stays past a limit before the guard acts (ms).
+  door_entity: cover.garage_door
+  door_unknown_grace_ms: "600000"
+  guard_delay_ms: "300000"
+
+esphome:
+  name: ${node_name}
+  friendly_name: ${device_verbose_name}
+
+esp8266:
+  board: esp_wroom_02
+  restore_from_flash: true
+
+# WiFi - create secrets.yaml with your credentials
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  min_auth_mode: WPA2
+  ap:
+    ssid: "${node_name}-hotspot"
+    password: !secret ap_password
+
+captive_portal:
+
+packages:
+  garage_safety: !include garage-safety.yaml
+
+api:
+  # Sends state changes to Home Assistant sooner than the default batching.
+  batch_delay: 50ms
+  encryption:
+    key: !secret api_key
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+logger:
+  level: INFO
+  baud_rate: 0
+
+web_server:
+  port: 80
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+# UART to HVAC - 9600 baud, Even parity (8E1)
+uart:
+  tx_pin: GPIO15
+  rx_pin: GPIO13
+  baud_rate: 9600
+  parity: EVEN
+
+# Pioneer Mini Split Controller
+pioneer_minisplit:
+  # garage-safety.yaml finds the climate by this id.
+  id: minisplit
+  name: "${device_verbose_name}"
+  # Optional: setpoints in whole °F (61-89) in the unit's own Fahrenheit mode.
+  # fahrenheit: true
+
+  # ============================================
+  # ENERGY (the unit's own meter) AND FAULTS
+  # ============================================
+  energy:
+    name: "Energy"
+  power_usage:
+    name: "Power"
+  fault:
+    name: "Fault"
+    entity_category: diagnostic
+
+  # ============================================
+  # TEMPERATURE SENSORS (HA converts to your preferred unit)
+  # ============================================
+  current_temperature:
+    name: "Indoor Temperature"
+  outdoor_temp:
+    name: "Outdoor Temperature"
+  
+  # ============================================
+  # CONTROL SWITCHES
+  # ============================================
+  display_switch:
+    name: "Display"
+  eco_switch:
+    name: "Eco"
+  turbo_switch:
+    name: "Turbo"
+  mute_switch:
+    name: "Mute"
+  sleep_switch:
+    name: "Sleep"
+  heater_8c_switch:
+    name: "Freeze Protection"
+  
+  # ============================================
+  # LOUVER MOTOR CONTROLS
+  # ============================================
+  swing_v_switch:
+    name: "Up-Down Louver"
+  swing_h_switch:
+    name: "Left-Right Louver"
+
+# ============================================
+# OPTIONAL: Status LED
+# ============================================
+output:
+  - platform: gpio
+    id: status_led
+    pin:
+      number: GPIO5
+      mode: output
+
+interval:
+  - interval: 1000ms
+    then:
+      - output.turn_on: status_led
+      - delay: 100ms
+      - output.turn_off: status_led
+
+# ============================================
+# UTILITIES
+# ============================================
+button:
+  - platform: restart
+    name: "Restart"

@@ -1,0 +1,487 @@
+# Garage safety for the mini-split, run by its own ESP. Home Assistant decides nothing; it only supplies the
+# garage door's state (and open percentage, where the door has one).
+#
+# Safety targets: the ESP remembers the last setpoint set in Heat ("Safety heat target", 65 F until one is set) and
+# in Cool ("Safety cool target", 80 F until one is set). Either can also be set in Home Assistant.
+#
+# Temperature guard ("Temperature guard" switch): the garage below "Safety low limit" (60 F) for the guard delay
+# (5 min) while the unit is not heating (off, cooling, fan or dry): it heats to the safety heat target. Above
+# "Safety high limit" (85 F) while not cooling: it cools to the safety cool target. That setting stays until someone
+# changes it. Auto counts as right for both.
+#
+# Door pause ("Door pause" switch):
+#   - The door counts as open at or above "Door pause open %" (30). Once it has been open for "Door pause wait"
+#     (10 min) with the unit running and the garage between the two limits, the unit's mode, setpoint and fan are
+#     saved (kept through a restart) and the unit is switched off.
+#   - The door below the open % again for "Door pause resume wait" (2 min): the saved settings come back. Opened
+#     again within the wait, it stays paused, so a door shut by mistake and opened again does not start the unit.
+#     0 puts them back as soon as the door closes.
+#   - While paused, the garage below the low limit: heats to the safety heat target; above the high limit: cools to
+#     the safety cool target. It stays on until the door has been closed for the resume wait, then the saved
+#     settings come back. Outside the limits it never pauses.
+#   - No door reading (Home Assistant unreachable, or the door unavailable) for 10 minutes while paused: the saved
+#     settings come back. This is shorter than the 15 minutes after which the ESP restarts without Home Assistant.
+#   - Anyone changing the mode while it is paused or heating or cooling for safety (the panel, Home Assistant, the
+#     remote) ends it, and it does not pause again until the door has closed.
+#   - "Door pause" off: it never pauses; if paused, the saved settings come back.
+#
+# The garage temperature is the unit's own indoor reading, read over the wire, so the limits hold without Wi-Fi.
+#
+# Nothing here names a home's entities. The including file supplies the climate `minisplit` and three substitutions:
+#   door_entity            the door in Home Assistant: a cover, with or without a position (current_position, 0-100),
+#                          or a binary sensor such as a contact sensor (on = open). "Door pause open %" applies only
+#                          to a door that reports a position; any other door counts as open while open, opening or
+#                          closing (or on).
+#   door_unknown_grace_ms  how long without a door reading before a pause is undone, e.g. "600000" (10 minutes).
+#   guard_delay_ms         how long the garage stays past a limit before the guard acts, e.g. "300000" (5 minutes).
+
+globals:
+  # 0 watching, 1 paused (unit off; "Door closed" while the resume wait runs), 2 heating or cooling for safety,
+  # 3 putting the saved settings back.
+  - id: dp_state
+    type: int
+    restore_value: yes
+    initial_value: "0"
+  # The settings saved at the pause: climate mode, setpoint (C), fan (a climate fan mode, or 100 + the custom fan's
+  # index: Mute, Low-Mid, Mid-High, Turbo; -1 none).
+  - id: dp_mode
+    type: int
+    restore_value: yes
+    initial_value: "0"
+  - id: dp_sp
+    type: float
+    restore_value: yes
+    initial_value: "NAN"
+  - id: dp_fan
+    type: int
+    restore_value: yes
+    initial_value: "-1"
+  # The safety mode in force: the climate mode HEAT or COOL.
+  - id: dp_safe_mode
+    type: int
+    restore_value: yes
+    initial_value: "0"
+
+switch:
+  - platform: template
+    id: dp_enabled
+    name: "Door pause"
+    icon: mdi:garage-open-variant
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+  - platform: template
+    id: dp_guard
+    name: "Temperature guard"
+    icon: mdi:thermometer-alert
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+number:
+  - platform: template
+    id: dp_open_pct
+    name: "Door pause open %"
+    icon: mdi:garage-open-variant
+    entity_category: config
+    unit_of_measurement: "%"
+    mode: box
+    min_value: 1
+    max_value: 100
+    step: 1
+    initial_value: 30
+    optimistic: true
+    restore_value: true
+  - platform: template
+    id: dp_wait
+    name: "Door pause wait"
+    icon: mdi:timer-outline
+    entity_category: config
+    unit_of_measurement: min
+    mode: box
+    min_value: 1
+    max_value: 60
+    step: 1
+    initial_value: 10
+    optimistic: true
+    restore_value: true
+  # How long the door stays closed before the saved settings come back.
+  - platform: template
+    id: dp_resume_wait
+    name: "Door pause resume wait"
+    icon: mdi:timer-check-outline
+    entity_category: config
+    unit_of_measurement: min
+    mode: box
+    min_value: 0
+    max_value: 30
+    step: 1
+    initial_value: 2
+    optimistic: true
+    restore_value: true
+  - platform: template
+    id: dp_low
+    name: "Safety low limit"
+    icon: mdi:thermometer-low
+    entity_category: config
+    unit_of_measurement: "°F"
+    mode: box
+    min_value: 40
+    max_value: 75
+    step: 1
+    initial_value: 60
+    optimistic: true
+    restore_value: true
+  - platform: template
+    id: dp_high
+    name: "Safety high limit"
+    icon: mdi:thermometer-high
+    entity_category: config
+    unit_of_measurement: "°F"
+    mode: box
+    min_value: 70
+    max_value: 100
+    step: 1
+    initial_value: 85
+    optimistic: true
+    restore_value: true
+  # The safety targets: the last setpoint set in Heat and in Cool (the unit takes whole F from 61 to 89).
+  - platform: template
+    id: dp_heat_to
+    name: "Safety heat target"
+    icon: mdi:fire
+    entity_category: config
+    unit_of_measurement: "°F"
+    mode: box
+    min_value: 61
+    max_value: 89
+    step: 1
+    initial_value: 65
+    optimistic: true
+    restore_value: true
+  - platform: template
+    id: dp_cool_to
+    name: "Safety cool target"
+    icon: mdi:snowflake
+    entity_category: config
+    unit_of_measurement: "°F"
+    mode: box
+    min_value: 61
+    max_value: 89
+    step: 1
+    initial_value: 80
+    optimistic: true
+    restore_value: true
+
+sensor:
+  # Minutes until a pause while the door is open and a pause is coming (unknown otherwise), for the thermostat panel.
+  - platform: template
+    id: dp_left_sensor
+    name: "Door pause in"
+    icon: mdi:timer-sand
+    unit_of_measurement: min
+    accuracy_decimals: 0
+    update_interval: never
+  # Minutes until the saved settings come back while the door is closed after a pause (unknown otherwise).
+  - platform: template
+    id: dp_resume_sensor
+    name: "Door pause resumes in"
+    icon: mdi:timer-sand
+    unit_of_measurement: min
+    accuracy_decimals: 0
+    update_interval: never
+  # The door's open percentage (0 closed); NaN when unavailable or when the door reports no position.
+  - platform: homeassistant
+    id: ha_door_pos
+    entity_id: ${door_entity}
+    attribute: current_position
+    internal: true
+
+text_sensor:
+  # The door's state, to catch "unavailable" and "unknown" even if the position is left at its last value.
+  - platform: homeassistant
+    id: ha_door_state
+    entity_id: ${door_entity}
+    internal: true
+  # What the door pause is doing, for Home Assistant (published by the check below).
+  - platform: template
+    id: dp_status
+    name: "Door pause state"
+    icon: mdi:garage-alert-variant
+    update_interval: never
+  # What comes back when the door closes, as "<climate mode> <setpoint F>" ("heat 69"), empty when nothing is saved.
+  - platform: template
+    id: dp_saved_text
+    name: "Door pause saved"
+    icon: mdi:content-save
+    entity_category: diagnostic
+    update_interval: never
+  # The last thing the door pause or the guard did, and why. Kept for Home Assistant even when it happens while
+  # Home Assistant is not connected (after a restart, say).
+  - platform: template
+    id: dp_last
+    name: "Door pause last action"
+    icon: mdi:history
+    update_interval: never
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          static const char *const TAG = "door_pause";
+          static const char *const CUSTOM_FANS[4] = {"Mute", "Low-Mid", "Mid-High", "Turbo"};
+          auto *c = id(minisplit);
+          const uint32_t now = millis();
+
+          // Kept in RAM only; a restart starts them over (the door's timer included).
+          static int prev_door = -1;        // 0 closed, 1 open, 2 unknown
+          static uint32_t open_since = 0;
+          static uint32_t closed_since = 0;
+          static uint32_t unknown_since = 0;
+          static bool hold = false;         // no new pause until the door has closed
+          static bool pending = false;      // a command sent and not yet seen to hold for 30 s
+          static uint32_t cmd_at = 0;
+          static bool synced = false;
+          static uint32_t save_at = 0;      // when to write the saved state to flash (0 none)
+          static bool send_after_save = false;
+          static std::string shown;
+
+          auto f_to_c = [](float f) { return (f - 32.0f) / 1.8f; };
+          auto num = [](float v, float fallback) { return std::isnan(v) ? fallback : v; };
+          const bool enabled = id(dp_enabled).state;
+          const float low = num(id(dp_low).state, 60.0f);
+          const float high = num(id(dp_high).state, 85.0f);
+          const float open_pct = num(id(dp_open_pct).state, 30.0f);
+          const uint32_t wait_ms = (uint32_t) (num(id(dp_wait).state, 10.0f) * 60000.0f);
+          const uint32_t resume_ms = (uint32_t) (num(id(dp_resume_wait).state, 2.0f) * 60000.0f);
+
+          // The door, as Home Assistant last sent it; unknown while Home Assistant is not subscribed.
+          const bool linked = api::global_api_server != nullptr &&
+                              api::global_api_server->is_connected_with_state_subscription();
+          const std::string &ds = id(ha_door_state).state;
+          const float pos = id(ha_door_pos).state;
+          int door = 2;
+          if (linked && id(ha_door_state).has_state() && ds != "unavailable" && ds != "unknown" && !ds.empty()) {
+            if (id(ha_door_pos).has_state() && !std::isnan(pos)) door = pos >= open_pct ? 1 : 0;
+            // No position (a cover without one, or a contact sensor): its state.
+            else if (ds == "closed" || ds == "off") door = 0;
+            else if (ds == "open" || ds == "opening" || ds == "closing" || ds == "on") door = 1;
+          }
+          if (door == 1 && prev_door != 1) open_since = now;
+          if (door == 0 && prev_door != 0) closed_since = now;
+          // The door closed for the resume wait (timed from the first closed reading after a restart).
+          const bool closed_long = door == 0 && now - closed_since >= resume_ms;
+          if (door == 0) hold = false;
+          prev_door = door;
+
+          // The garage, from the unit (NaN until the first status from the unit).
+          const float tc = c->current_temperature;
+          const bool temp_known = !std::isnan(tc);
+          const float tf = tc * 1.8f + 32.0f;
+          if (door != 2 && temp_known) unknown_since = 0;
+          else if (unknown_since == 0) unknown_since = now | 1;
+
+          int st = id(dp_state);
+          auto wanted_mode = [&]() -> int {
+            if (st == 1) return (int) climate::CLIMATE_MODE_OFF;
+            if (st == 2) return id(dp_safe_mode);
+            return id(dp_mode);
+          };
+          auto send = [&]() {
+            auto call = c->make_call();
+            if (st == 1) {
+              call.set_mode(climate::CLIMATE_MODE_OFF);
+            } else if (st == 2) {
+              const bool heat = id(dp_safe_mode) == (int) climate::CLIMATE_MODE_HEAT;
+              call.set_mode(heat ? climate::CLIMATE_MODE_HEAT : climate::CLIMATE_MODE_COOL);
+              call.set_target_temperature(f_to_c(heat ? num(id(dp_heat_to).state, 65.0f) : num(id(dp_cool_to).state, 80.0f)));
+              call.set_fan_mode(climate::CLIMATE_FAN_AUTO);
+            } else if (st == 3) {
+              call.set_mode((climate::ClimateMode) id(dp_mode));
+              if (!std::isnan(id(dp_sp))) call.set_target_temperature(id(dp_sp));
+              const int fan = id(dp_fan);
+              if (fan >= 100 && fan < 104) call.set_fan_mode(CUSTOM_FANS[fan - 100]);
+              else if (fan >= 0 && fan < 100) call.set_fan_mode((climate::ClimateFanMode) fan);
+            }
+            call.perform();
+            pending = true;
+            cmd_at = now;
+          };
+          // Moves to the next state. Its command goes only once the state is in flash, so a restart in between
+          // cannot leave the unit off with nothing to bring it back (kept globals are stored within 1 s of a change).
+          auto go = [&](int next, const char *why) {
+            ESP_LOGI(TAG, "%s", why);
+            id(dp_last).publish_state(why);
+            st = next;
+            id(dp_state) = next;
+            save_at = (now + 1500) | 1;
+            send_after_save = next != 0;
+            pending = false;
+          };
+          if (save_at != 0 && (int32_t) (now - save_at) >= 0) {
+            global_preferences->sync();
+            save_at = 0;
+            if (send_after_save && st != 0) send();
+            send_after_save = false;
+          }
+
+          // After a restart: once the unit has reported, a safety mode or a restore in progress is sent again.
+          if (!synced && temp_known) {
+            synced = true;
+            if (st == 2 || st == 3) send();
+          }
+
+          // A pause is given 10 s to settle; after that any other mode is someone else's (a pause that does not take
+          // leaves the unit running, the safe side). Turning the unit on takes when the mode still matches 30 s
+          // later; until then a mismatch is resent every 15 s.
+          const bool match = temp_known && (int) c->mode == wanted_mode();
+          if (st == 1 && pending) {
+            if (now - cmd_at >= 10000) pending = false;
+          } else if (st != 0 && pending) {
+            if (!match) {
+              if (now - cmd_at >= 15000) send();
+            } else if (now - cmd_at >= 30000) {
+              pending = false;
+              if (st == 3) {
+                go(0, "Saved settings back");
+                if (door != 0) hold = true;
+              }
+            }
+          } else if (st != 0 && save_at == 0 && temp_known && !match) {
+            // Someone else changed the mode: they win, until the door has closed.
+            go(0, "Mode changed by hand: door pause ends");
+            if (door != 0) hold = true;
+          }
+
+          // Remember the setpoint set in Heat and in Cool, as the safety targets (not while this logic holds the unit).
+          if (st == 0 && !pending && save_at == 0 && temp_known && !std::isnan(c->target_temperature)) {
+            const int f = (int) lroundf(c->target_temperature * 1.8f + 32.0f);
+            if (f >= 61 && f <= 89) {
+              if (c->mode == climate::CLIMATE_MODE_HEAT && (int) id(dp_heat_to).state != f) {
+                auto call = id(dp_heat_to).make_call();
+                call.set_value(f);
+                call.perform();
+              } else if (c->mode == climate::CLIMATE_MODE_COOL && (int) id(dp_cool_to).state != f) {
+                auto call = id(dp_cool_to).make_call();
+                call.set_value(f);
+                call.perform();
+              }
+            }
+          }
+
+          // Temperature guard: past a limit for the guard delay with the unit not set to fix it.
+          static uint32_t guard_since = 0;
+          static int guard_want = -1;
+          int want = -1;
+          if (id(dp_guard).state && st == 0 && !pending && save_at == 0 && temp_known) {
+            const auto m = c->mode;
+            if (tf < low && m != climate::CLIMATE_MODE_HEAT && m != climate::CLIMATE_MODE_HEAT_COOL)
+              want = (int) climate::CLIMATE_MODE_HEAT;
+            else if (tf > high && m != climate::CLIMATE_MODE_COOL && m != climate::CLIMATE_MODE_HEAT_COOL)
+              want = (int) climate::CLIMATE_MODE_COOL;
+          }
+          if (want < 0) {
+            guard_since = 0;
+          } else if (guard_since == 0 || want != guard_want) {
+            guard_since = now | 1;
+            guard_want = want;
+          } else if (now - guard_since >= ${guard_delay_ms}) {
+            const bool heat = want == (int) climate::CLIMATE_MODE_HEAT;
+            const char *why = heat ? "Guard: garage below the low limit and the unit not heating: heating"
+                                   : "Guard: garage above the high limit and the unit not cooling: cooling";
+            ESP_LOGI(TAG, "%s", why);
+            id(dp_last).publish_state(why);
+            auto call = c->make_call();
+            call.set_mode(heat ? climate::CLIMATE_MODE_HEAT : climate::CLIMATE_MODE_COOL);
+            call.set_target_temperature(f_to_c(heat ? num(id(dp_heat_to).state, 65.0f) : num(id(dp_cool_to).state, 80.0f)));
+            call.set_fan_mode(climate::CLIMATE_FAN_AUTO);
+            call.perform();
+            guard_since = 0;  // if it does not take, the guard tries again after another delay
+          }
+
+          switch (st) {
+            case 0:
+              if (enabled && !hold && low < high && door == 1 && temp_known && !pending &&
+                  c->mode != climate::CLIMATE_MODE_OFF && tf >= low && tf <= high && now - open_since >= wait_ms) {
+                id(dp_mode) = (int) c->mode;
+                id(dp_sp) = c->target_temperature;
+                int fan = -1;
+                if (c->has_custom_fan_mode()) {
+                  for (int i = 0; i < 4; i++)
+                    if (c->get_custom_fan_mode() == CUSTOM_FANS[i]) fan = 100 + i;
+                } else if (c->fan_mode.has_value()) {
+                  fan = (int) *c->fan_mode;
+                }
+                id(dp_fan) = fan;
+                go(1, "Garage door open: pausing the mini-split");
+              }
+              break;
+            case 1:
+              if (!enabled) go(3, "Door pause switched off: putting the saved settings back");
+              else if (closed_long) go(3, "Garage door closed: putting the saved settings back");
+              else if (temp_known && tf < low) {
+                id(dp_safe_mode) = (int) climate::CLIMATE_MODE_HEAT;
+                go(2, "Garage below the low limit: heating");
+              } else if (temp_known && tf > high) {
+                id(dp_safe_mode) = (int) climate::CLIMATE_MODE_COOL;
+                go(2, "Garage above the high limit: cooling");
+              } else if (unknown_since != 0 && now - unknown_since >= ${door_unknown_grace_ms}) {
+                go(3, "No door reading: putting the saved settings back");
+              }
+              break;
+            case 2:
+              if (!enabled) go(3, "Door pause switched off: putting the saved settings back");
+              else if (closed_long) go(3, "Garage door closed: putting the saved settings back");
+              break;
+            default:
+              break;
+          }
+
+          // For the thermostat panel: the countdown to a pause, the countdown to the resume, and the saved setting.
+          float left = NAN;
+          if (st == 0 && enabled && !hold && low < high && door == 1 && temp_known && !pending &&
+              c->mode != climate::CLIMATE_MODE_OFF && tf >= low && tf <= high) {
+            const uint32_t el = now - open_since;
+            left = el >= wait_ms ? 0.0f : (float) ((wait_ms - el + 59999) / 60000);
+          }
+          static float left_shown = -1.0f;
+          if (!((std::isnan(left) && std::isnan(left_shown)) || left == left_shown)) {
+            left_shown = left;
+            id(dp_left_sensor).publish_state(left);
+          }
+          float resume_left = NAN;
+          if ((st == 1 || st == 2) && enabled && door == 0) {
+            const uint32_t el = now - closed_since;
+            resume_left = el >= resume_ms ? 0.0f : (float) ((resume_ms - el + 59999) / 60000);
+          }
+          static float resume_shown = -1.0f;
+          if (!((std::isnan(resume_left) && std::isnan(resume_shown)) || resume_left == resume_shown)) {
+            resume_shown = resume_left;
+            id(dp_resume_sensor).publish_state(resume_left);
+          }
+          std::string saved_now;
+          if (st != 0) {
+            static const char *const MODE_NAMES[7] = {"off", "heat_cool", "cool", "heat", "fan_only", "dry", "auto"};
+            const int m = id(dp_mode);
+            char b[24];
+            snprintf(b, sizeof b, "%s %d", (m >= 0 && m <= 6) ? MODE_NAMES[m] : "heat",
+                     std::isnan(id(dp_sp)) ? 0 : (int) lroundf(id(dp_sp) * 1.8f + 32.0f));
+            saved_now = b;
+          }
+          static std::string saved_shown = "-";
+          if (saved_now != saved_shown) {
+            saved_shown = saved_now;
+            id(dp_saved_text).publish_state(saved_now);
+          }
+
+          std::string now_shown;
+          if (st == 1) now_shown = door == 0 ? "Door closed" : "Paused";
+          else if (st == 2) now_shown = id(dp_safe_mode) == (int) climate::CLIMATE_MODE_HEAT ? "Heating for safety" : "Cooling for safety";
+          else if (st == 3) now_shown = "Restoring";
+          else if (!enabled) now_shown = "Off";
+          else if (door == 2) now_shown = "No door reading";
+          else if (hold) now_shown = "Waiting for the door to close";
+          else if (door == 1) now_shown = "Door open";
+          else now_shown = "Watching";
+          if (now_shown != shown) {
+            shown = now_shown;
+            id(dp_status).publish_state(shown);
+          }

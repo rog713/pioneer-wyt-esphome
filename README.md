@@ -46,7 +46,7 @@ external_components:
 
 ## Configuration
 
-Two example configs are included:
+Two example configs are included (and on this branch a third, `example-garage-safety.yaml`; see Garage Safety below):
 
 **`example-production.yaml`** - Minimal setup for daily use. Just the sensors you actually want on a dashboard. Start here.
 
@@ -110,6 +110,29 @@ The manual exposes louver motor toggles, not fixed louver positions. Production 
 | Freeze Protection | 46°F / 8°C minimum heat mode |
 | Up-Down Louver | Vertical louver motor on/off |
 | Left-Right Louver | Horizontal louver motor on/off |
+
+## Garage Safety (this branch)
+
+For a mini-split in a garage, `esphome/garage-safety.yaml` adds a door pause and temperature limits that run on the
+ESP itself. Home Assistant only supplies the garage door's state; every decision is made on the ESP, and the limits use
+the unit's own indoor reading, so they hold without Wi-Fi. Start from `esphome/example-garage-safety.yaml` and set
+`door_entity` to your door.
+
+- **Door pause:** once the door has been open for *Door pause wait* (10 min) with the unit running, its mode, setpoint
+  and fan are saved and it switches off. When the door has been closed for *Door pause resume wait* (2 min), they come
+  back; a door opened again within that wait keeps it paused. A door with a position counts as open from *Door pause
+  open %* (30).
+- **Safety limits:** while paused, a garage below *Safety low limit* (60 °F) heats and one above *Safety high limit*
+  (85 °F) cools, to the last setpoint used in Heat or Cool (*Safety heat target*, *Safety cool target*). Outside the
+  limits it never pauses.
+- **Temperature guard:** the garage past a limit for 5 minutes with the unit not set to fix it (off, or the wrong
+  mode) turns on Heat or Cool to the same targets.
+- **Fail-safes:** no door reading for 10 minutes while paused puts the saved settings back; anyone changing the mode
+  while paused (Home Assistant, the remote) wins; the saved settings survive a restart.
+- **Home Assistant entities:** switches *Door pause* and *Temperature guard*; the numbers above; sensors *Door pause
+  state*, *Door pause in*, *Door pause resumes in*, *Door pause saved* and *Door pause last action*.
+
+The full rules are in the comments at the top of `garage-safety.yaml`.
 
 ## Protocol Docs
 
