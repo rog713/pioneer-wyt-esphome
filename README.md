@@ -56,6 +56,13 @@ Both examples use the same component code. Production keeps the entity list smal
 
 Both require a `secrets.yaml` with your WiFi credentials and API keys. See `secrets.yaml.example`.
 
+### Optional: Garage Safety
+
+For a mini-split in a garage, the [`garage-safety`](https://github.com/rog713/pioneer-wyt-esphome/tree/garage-safety)
+branch adds a package that pauses the unit while the garage door is open, resumes it once the door has stayed closed,
+and keeps the garage between two temperature limits. It all runs on the ESP; Home Assistant only supplies the door's
+state. It lives on its own branch because most installs have no garage door to pair with; see that branch's README.
+
 ### Options
 
 | Option | What |
