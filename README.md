@@ -134,6 +134,13 @@ the unit's own indoor reading, so they hold without Wi-Fi. Start from `esphome/e
 
 The full rules are in the comments at the top of `garage-safety.yaml`.
 
+To see these states on a wall panel, the
+[`thermostat-panel`](https://github.com/rog713/pioneer-wyt-esphome/tree/thermostat-panel/panel) branch has a touch
+thermostat (Waveshare ESP32-S3-Touch-LCD-4.3) that shows the door countdown, the paused and safety screens, and the
+guard's card, with Resume now to skip the wait.
+
+![The panel: door open, paused, door closed, heating for safety](https://raw.githubusercontent.com/rog713/pioneer-wyt-esphome/thermostat-panel/panel/images/garage-safety.jpg)
+
 ## Protocol Docs
 
 See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the byte-level details if you want to understand or extend this.
