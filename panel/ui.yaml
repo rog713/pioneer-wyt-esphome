@@ -1,0 +1,1074 @@
+# Thermostat panel: the screen (480 x 800 portrait, LVGL 9).
+#
+# Shared by the board (thermostat-panel.yaml) and the preview (mock.yaml), so what the preview shows is what
+# the panel draws. The including file supplies the link to the mini-split by defining four scripts:
+#   send_mode(m: int)            m: 0 Off, 1 Heat, 2 Cool, 3 Auto, 4 Dry, 5 Fan
+#   send_fan(f: int)             f: 0 Auto, 1 Quiet, 2 Low, 3 Low-mid, 4 Medium, 5 Mid-high, 6 High, 7 Turbo
+#   send_setpoint()              sends g_sp (whole degrees in the display unit: 61-89 F, or 16-31 C)
+#   send_toggle(idx: int, turn_on: bool)  idx: 0 Eco, 1 Sleep, 2 Up-down louver, 3 Left-right louver, 4 Display
+# and keeps the g_* globals current, calling ui_refresh after each change.
+#
+# Layout (y, top to bottom): header 22-84, dial 96-456 with - and + in its opening, modes 476-560,
+# fan card 576-676, feature tiles 692-780.
+
+substitutions:
+  room_name: Garage
+  use_fahrenheit: "true"
+  # Setpoint range in the display unit (the mini-split takes every whole F from 61 to 89).
+  sp_min: "61"
+  sp_max: "89"
+  # Mode accents: the dial, the selected mode, the fan and the lit feature tiles take the current mode's colour.
+  c_off: "0x5A6475"
+  c_heat: "0xF26B2A"
+  c_cool: "0x2F7BF6"
+  c_auto: "0x16A085"
+  c_dry: "0x1599B5"
+  c_fan: "0x6E7F99"
+  c_warn: "0xE8A33D"
+  # The garage safety screens: paused (amber, dark text) and heating or cooling for safety (red, white text).
+  c_alert: "0xE5484D"
+  c_pause_bg: "0xF5A524"
+  c_pause_text: "0x2B1A05"
+  c_safety_bg: "0xD63C3C"
+  # Dark palette
+  d_screen: "0x0D1015"
+  d_card: "0x161A21"
+  d_border: "0x232833"
+  d_chip: "0x212632"
+  d_text: "0xF2F4F7"
+  d_muted: "0x8A93A5"
+  d_soft: "0xC5CCD8"
+  d_track: "0x2A303C"
+  # Light palette
+  l_screen: "0xEEF1F6"
+  l_card: "0xFFFFFF"
+  l_border: "0xDDE2EA"
+  l_chip: "0xEDF0F5"
+  l_text: "0x151B26"
+  l_muted: "0x6B7484"
+  l_soft: "0x3B4454"
+  l_track: "0xD9DEE7"
+
+globals:
+  - id: g_mode
+    type: int
+    initial_value: "1"
+  - id: g_fan
+    type: int
+    initial_value: "0"
+  - id: g_sp
+    type: int
+    initial_value: "73"
+  - id: g_indoor
+    type: float
+    initial_value: "NAN"
+  - id: g_outdoor
+    type: float
+    initial_value: "NAN"
+  # The mini-split's own power reading (W), every 2 minutes from its energy count.
+  - id: g_power
+    type: float
+    initial_value: "NAN"
+  # What the unit is doing (Home Assistant's hvac_action): 0 idle, off or unknown, 1 heating, 2 cooling, 3 drying.
+  - id: g_action
+    type: int
+    initial_value: "0"
+  # The unit's fault numbers ("3 5"), empty when it reports none.
+  - id: g_fault
+    type: std::string
+    initial_value: '""'
+  # The mini-split's garage safety (its "Door pause state"): 0 watching, 1 door open (g_dp_left minutes to the pause),
+  # 2 paused, 3 heating for safety, 4 cooling for safety, 5 door open with the pause skipped (changed by hand).
+  # In 2-4, g_dp_resume >= 0 means the door has closed and the saved settings come back in that many minutes.
+  - id: g_dp
+    type: int
+    initial_value: "0"
+  - id: g_dp_left
+    type: int
+    initial_value: "-1"
+  - id: g_dp_resume
+    type: int
+    initial_value: "-1"
+  # While paused: false shows the full paused screen, true the thermostat (after "Thermostat" is tapped).
+  - id: g_dp_view
+    type: bool
+    initial_value: "false"
+  # The door's open percentage; -1 when the door reports none.
+  - id: g_door_pct
+    type: int
+    initial_value: "-1"
+  # What comes back when the door closes (the mode and setpoint saved at the pause), and the safety limits (F). While
+  # heating or cooling for safety the unit's own setpoint (g_sp) is the safety target.
+  - id: g_saved_mode
+    type: int
+    initial_value: "1"
+  - id: g_saved_sp
+    type: int
+    initial_value: "69"
+  - id: g_dp_low
+    type: int
+    initial_value: "60"
+  - id: g_dp_high
+    type: int
+    initial_value: "85"
+  # The guard's last action, shown on a card until tapped: 0 none, 1 it turned on Heat, 2 it turned on Cool.
+  - id: g_guard_note
+    type: int
+    initial_value: "0"
+  - id: g_guard_temp
+    type: float
+    initial_value: "NAN"
+  - id: g_guard_time
+    type: std::string
+    initial_value: '""'
+  - id: g_eco
+    type: bool
+    initial_value: "false"
+  - id: g_sleep
+    type: bool
+    initial_value: "false"
+  - id: g_swing_v
+    type: bool
+    initial_value: "false"
+  - id: g_swing_h
+    type: bool
+    initial_value: "false"
+  - id: g_display
+    type: bool
+    initial_value: "true"
+  - id: g_connected
+    type: bool
+    initial_value: "false"
+  # While the setpoint is being changed here, incoming setpoint updates are ignored until this time (millis).
+  - id: g_sp_hold
+    type: uint32_t
+    initial_value: "0"
+  - id: g_light
+    type: bool
+    initial_value: "false"
+
+font:
+  - file: { type: gfonts, family: Manrope, weight: 600 }
+    id: f_title
+    size: 30
+    glyphs: &text_glyphs
+      - " !#%&'()*+,-./:;?"
+      - "0123456789"
+      - "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      - "abcdefghijklmnopqrstuvwxyz"
+      - "°·–"
+  - file: { type: gfonts, family: Manrope, weight: 600 }
+    id: f_sub
+    size: 16
+    glyphs: *text_glyphs
+    extras:
+      - file: ${mdi_font}
+        glyphs: ["\U000F05AA", "\U000F0026", "\U000F12D4", "\U000F12D3"] # wifi-off, alert, garage-open-variant, garage-variant
+  - file: { type: gfonts, family: Manrope, weight: 600 }
+    id: f_caption
+    size: 14
+    glyphs: *text_glyphs
+  - file: { type: gfonts, family: Manrope, weight: 500 }
+    id: f_value
+    size: 20
+    glyphs: *text_glyphs
+    extras:
+      - file: ${mdi_font}
+        glyphs: ["\U000F18D6", "\U000F0241"] # sun-thermometer, flash
+  - file: { type: gfonts, family: Manrope, weight: 300 }
+    id: f_big
+    size: 112
+    glyphs: ["0123456789°-OFAN"]
+  - file: ${mdi_font}
+    id: f_icon
+    size: 30
+    glyphs:
+      - "\U000F0425" # power
+      - "\U000F0238" # fire
+      - "\U000F0717" # snowflake
+      - "\U000F1A79" # sun-snowflake-variant
+      - "\U000F058E" # water-percent
+      - "\U000F0210" # fan
+      - "\U000F032A" # leaf
+      - "\U000F0594" # weather-night
+      - "\U000F0E79" # arrow-up-down
+      - "\U000F0E73" # arrow-left-right
+      - "\U000F06E9" # lightbulb-on-outline
+      - "\U000F0ECC" # shield-alert
+  - file: ${mdi_font}
+    id: f_hero
+    size: 120
+    glyphs:
+      - "\U000F12D4" # garage-open-variant
+      - "\U000F12D3" # garage-variant (closed)
+      - "\U000F0238" # fire
+      - "\U000F0717" # snowflake
+  - file: ${mdi_font}
+    id: f_icon_big
+    size: 34
+    glyphs:
+      - "\U000F0374" # minus
+      - "\U000F0415" # plus
+
+script:
+  # Re-applies the palette (dark or light, g_light) to the shared styles.
+  - id: ui_theme
+    then:
+      - lambda: |-
+          const bool L = id(g_light);
+          lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(L ? ${l_screen} : ${d_screen}), LV_PART_MAIN);
+          lv_style_set_bg_color(id(st_card), lv_color_hex(L ? ${l_card} : ${d_card}));
+          lv_style_set_border_color(id(st_card), lv_color_hex(L ? ${l_border} : ${d_border}));
+          lv_style_set_bg_color(id(st_chip), lv_color_hex(L ? ${l_chip} : ${d_chip}));
+          lv_style_set_text_color(id(st_text), lv_color_hex(L ? ${l_text} : ${d_text}));
+          lv_style_set_text_color(id(st_muted), lv_color_hex(L ? ${l_muted} : ${d_muted}));
+          lv_style_set_text_color(id(st_soft), lv_color_hex(L ? ${l_soft} : ${d_soft}));
+          lv_style_set_bg_color(id(st_track), lv_color_hex(L ? ${l_track} : ${d_track}));
+          lv_obj_set_style_arc_color(id(dial), lv_color_hex(L ? ${l_track} : ${d_track}), LV_PART_MAIN);
+          lv_obj_set_style_shadow_opa(id(dial), L ? LV_OPA_20 : LV_OPA_50, LV_PART_KNOB);
+          lv_obj_report_style_change(nullptr);
+      - script.execute: ui_refresh
+
+  # Draws every value from the g_* globals.
+  - id: ui_refresh
+    then:
+      - lambda: |-
+          static const uint32_t ACC[6] = {${c_off}, ${c_heat}, ${c_cool}, ${c_auto}, ${c_dry}, ${c_fan}};
+          // Off and Fan say so in the big text, so they have no line above it.
+          // While the outdoor unit runs the line says so; idle at the setpoint, it names the mode.
+          static const char *const MODE_TXT[6] = {"", "HEAT TO", "COOL TO", "AUTO", "DRY", ""};
+          static const char *const RUN_TXT[6] = {"", "HEATING TO", "COOLING TO", "", "DRYING", ""};
+          static const uint32_t ACTION_C[4] = {0, ${c_heat}, ${c_cool}, ${c_dry}};
+          static const char *const FAN_TXT[8] = {"Auto", "Quiet", "Low", "Low-mid", "Medium", "Mid-high", "High", "Turbo"};
+          const bool L = id(g_light);
+          const lv_color_t text_c = lv_color_hex(L ? ${l_text} : ${d_text});
+          const lv_color_t muted_c = lv_color_hex(L ? ${l_muted} : ${d_muted});
+          int m = id(g_mode);
+          if (m < 0 || m > 5) m = 0;
+          int f = id(g_fan);
+          if (f < 0 || f > 7) f = 0;
+          const lv_color_t acc = lv_color_hex(ACC[m]);
+          const bool uses_sp = m >= 1 && m <= 4;
+          char buf[96];
+
+          // Dial: the ring shows the setpoint while the mode uses one; Off and Fan show a bare ring.
+          lv_arc_set_value(id(dial), id(g_sp));
+          lv_obj_set_style_arc_color(id(dial), acc, LV_PART_INDICATOR);
+          lv_obj_set_style_arc_opa(id(dial), uses_sp ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_INDICATOR);
+          lv_obj_set_style_opa(id(dial), uses_sp ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_KNOB);
+          if (uses_sp) lv_obj_add_flag(id(dial), LV_OBJ_FLAG_CLICKABLE);
+          else lv_obj_remove_flag(id(dial), LV_OBJ_FLAG_CLICKABLE);
+
+          const int a = (id(g_action) >= 1 && id(g_action) <= 3 && m != 0) ? id(g_action) : 0;
+          if (a == 0) lv_label_set_text(id(lbl_mode), MODE_TXT[m]);
+          else if (m == 3) lv_label_set_text(id(lbl_mode), a == 1 ? "AUTO · HEATING" : "AUTO · COOLING");
+          else lv_label_set_text(id(lbl_mode), RUN_TXT[m][0] ? RUN_TXT[m] : MODE_TXT[m]);
+          lv_obj_set_style_text_color(id(lbl_mode), m == 0 ? muted_c : acc, LV_PART_MAIN);
+
+          if (uses_sp) {
+            snprintf(buf, sizeof buf, "%d°", id(g_sp));
+            lv_label_set_text(id(lbl_big), buf);
+            lv_obj_set_style_text_color(id(lbl_big), text_c, LV_PART_MAIN);
+          } else {
+            lv_label_set_text(id(lbl_big), m == 0 ? "OFF" : "FAN");
+            lv_obj_set_style_text_color(id(lbl_big), m == 0 ? muted_c : acc, LV_PART_MAIN);
+          }
+
+          if (std::isnan(id(g_indoor))) lv_label_set_text(id(lbl_inside), "Inside --°");
+          else {
+            snprintf(buf, sizeof buf, "Inside %d°", (int) lroundf(id(g_indoor)));
+            lv_label_set_text(id(lbl_inside), buf);
+          }
+          if (std::isnan(id(g_outdoor))) lv_label_set_text(id(lbl_out), "\U000F18D6 --°");
+          else {
+            snprintf(buf, sizeof buf, "\U000F18D6 %d°", (int) lroundf(id(g_outdoor)));
+            lv_label_set_text(id(lbl_out), buf);
+          }
+          if (std::isnan(id(g_power))) lv_label_set_text(id(lbl_pwr), "\U000F0241 -- W");
+          else {
+            snprintf(buf, sizeof buf, "\U000F0241 %d W", (int) lroundf(id(g_power)));
+            lv_label_set_text(id(lbl_pwr), buf);
+          }
+          // The power chip takes the colour of what the unit is doing while it runs.
+          if (a != 0) lv_obj_set_style_text_color(id(lbl_pwr), lv_color_hex(ACTION_C[a]), LV_PART_MAIN);
+          else lv_obj_remove_local_style_prop(id(lbl_pwr), LV_STYLE_TEXT_COLOR, LV_PART_MAIN);
+
+          if (!id(g_connected)) {
+            lv_label_set_text(id(lbl_sub), "\U000F05AA  Not connected");
+            lv_obj_set_style_text_color(id(lbl_sub), lv_color_hex(${c_warn}), LV_PART_MAIN);
+          } else if (!id(g_fault).empty()) {
+            snprintf(buf, sizeof buf, "\U000F0026  Unit fault %s", id(g_fault).c_str());
+            lv_label_set_text(id(lbl_sub), buf);
+            lv_obj_set_style_text_color(id(lbl_sub), lv_color_hex(${c_warn}), LV_PART_MAIN);
+          } else if (id(g_dp) >= 1 && id(g_dp) <= 5) {
+            const int dp = id(g_dp);
+            if (dp == 1 && id(g_dp_left) > 0) snprintf(buf, sizeof buf, "\U000F12D4  Door open · pausing in %d min", id(g_dp_left));
+            else if (dp == 1 && id(g_dp_left) == 0) snprintf(buf, sizeof buf, "\U000F12D4  Door open · pausing now");
+            else if (dp == 1) snprintf(buf, sizeof buf, "\U000F12D4  Garage door open");
+            else if (dp == 2 && id(g_dp_resume) > 0) snprintf(buf, sizeof buf, "\U000F12D3  Door closed · resuming in %d min", id(g_dp_resume));
+            else if (dp == 2 && id(g_dp_resume) == 0) snprintf(buf, sizeof buf, "\U000F12D3  Door closed · resuming now");
+            else if (dp == 2) snprintf(buf, sizeof buf, "\U000F12D4  Paused · garage door open");
+            else if (dp == 3) snprintf(buf, sizeof buf, "\U000F0026  Heating for safety · door %s", id(g_dp_resume) >= 0 ? "closed" : "open");
+            else if (dp == 4) snprintf(buf, sizeof buf, "\U000F0026  Cooling for safety · door %s", id(g_dp_resume) >= 0 ? "closed" : "open");
+            else snprintf(buf, sizeof buf, "\U000F12D4  Door open · not pausing");
+            lv_label_set_text(id(lbl_sub), buf);
+            lv_obj_set_style_text_color(id(lbl_sub), lv_color_hex(dp >= 3 && dp <= 4 ? ${c_alert} : ${c_warn}), LV_PART_MAIN);
+          } else {
+            lv_label_set_text(id(lbl_sub), "Mini-split");
+            lv_obj_remove_local_style_prop(id(lbl_sub), LV_STYLE_TEXT_COLOR, LV_PART_MAIN);
+          }
+
+          // - and + only while the mode uses a setpoint.
+          lv_obj_t *steps[2] = {id(btn_minus), id(btn_plus)};
+          for (auto *b : steps) {
+            if (uses_sp) lv_obj_remove_state(b, LV_STATE_DISABLED);
+            else lv_obj_add_state(b, LV_STATE_DISABLED);
+          }
+
+          // Modes: each button has its own colour when selected (set in YAML).
+          lv_obj_t *modes[6] = {id(mode_off), id(mode_heat), id(mode_cool), id(mode_auto), id(mode_dry), id(mode_fan)};
+          for (int i = 0; i < 6; i++) {
+            if (i == m) lv_obj_add_state(modes[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(modes[i], LV_STATE_CHECKED);
+          }
+
+          // Fan: Auto, Quiet and Turbo chips; five bars for Low to High (Turbo lights all five).
+          lv_label_set_text(id(lbl_fan), FAN_TXT[f]);
+          const int level = (f >= 2 && f <= 6) ? f - 1 : (f == 7 ? 5 : 0);
+          lv_obj_t *chips[3] = {id(fan_auto), id(fan_quiet), id(fan_turbo)};
+          const int chip_val[3] = {0, 1, 7};
+          for (int i = 0; i < 3; i++) {
+            lv_obj_set_style_bg_color(chips[i], acc, LV_PART_MAIN | LV_STATE_CHECKED);
+            if (f == chip_val[i]) lv_obj_add_state(chips[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(chips[i], LV_STATE_CHECKED);
+          }
+          lv_obj_t *bars[5] = {id(fan_bar1), id(fan_bar2), id(fan_bar3), id(fan_bar4), id(fan_bar5)};
+          for (int i = 0; i < 5; i++) {
+            lv_obj_set_style_bg_color(bars[i], acc, LV_PART_MAIN | LV_STATE_CHECKED);
+            if (i < level) lv_obj_add_state(bars[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(bars[i], LV_STATE_CHECKED);
+          }
+
+          // Feature tiles: tinted with the mode colour when on; in Off and Fan, in the text colour (their grey and
+          // slate would read as disabled).
+          const lv_color_t tile_acc = (m == 0 || m == 5) ? text_c : acc;
+          lv_obj_t *tiles[5] = {id(tile_eco), id(tile_sleep), id(tile_swing_v), id(tile_swing_h), id(tile_display)};
+          const bool on[5] = {id(g_eco), id(g_sleep), id(g_swing_v), id(g_swing_h), id(g_display)};
+          for (int i = 0; i < 5; i++) {
+            lv_obj_set_style_bg_color(tiles[i], tile_acc, LV_PART_MAIN | LV_STATE_CHECKED);
+            lv_obj_set_style_bg_opa(tiles[i], L ? LV_OPA_10 : LV_OPA_20, LV_PART_MAIN | LV_STATE_CHECKED);
+            lv_obj_set_style_border_color(tiles[i], tile_acc, LV_PART_MAIN | LV_STATE_CHECKED);
+            lv_obj_set_style_text_color(tiles[i], tile_acc, LV_PART_MAIN | LV_STATE_CHECKED);
+            if (on[i]) lv_obj_add_state(tiles[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(tiles[i], LV_STATE_CHECKED);
+          }
+
+          // Garage safety: the full paused or safety screen (until "Thermostat" is tapped), the dial while paused,
+          // and the card the guard leaves.
+          const int dp = id(g_dp);
+          const bool full = dp >= 2 && dp <= 4 && !id(g_dp_view);
+          static const char *const SAVED_TXT[6] = {"Off", "Heat to", "Cool to", "Auto at", "Dry at", "Fan"};
+          const int sm = (id(g_saved_mode) < 0 || id(g_saved_mode) > 5) ? 1 : id(g_saved_mode);
+          char saved[24];
+          if (sm == 0 || sm == 5) snprintf(saved, sizeof saved, "%s", SAVED_TXT[sm]);
+          else snprintf(saved, sizeof saved, "%s %d°", SAVED_TXT[sm], id(g_saved_sp));
+          if (full) {
+            const bool pause = dp == 2;
+            const lv_color_t bg = lv_color_hex(pause ? ${c_pause_bg} : ${c_safety_bg});
+            const lv_color_t fg = lv_color_hex(pause ? ${c_pause_text} : 0xFFFFFF);
+            lv_obj_set_style_bg_color(id(dp_overlay), bg, LV_PART_MAIN);
+            lv_obj_t *labels[7] = {id(dp_hdr), id(dp_icon), id(dp_title), id(dp_sub), id(dp_temp), id(dp_cap), id(dp_line1)};
+            for (auto *l : labels) lv_obj_set_style_text_color(l, fg, LV_PART_MAIN);
+            lv_obj_set_style_text_color(id(dp_line2), fg, LV_PART_MAIN);
+            lv_obj_set_style_text_opa(id(dp_line2), LV_OPA_80, LV_PART_MAIN);
+            lv_label_set_text(id(dp_icon), pause ? (id(g_dp_resume) >= 0 ? "\U000F12D3" : "\U000F12D4") : dp == 3 ? "\U000F0238" : "\U000F0717");
+            lv_label_set_text(id(dp_title), pause ? "Paused" : dp == 3 ? "Heating for safety" : "Cooling for safety");
+            const int rs = id(g_dp_resume);
+            if (pause && rs >= 0) snprintf(buf, sizeof buf, "The garage door is closed");
+            else if (pause && id(g_door_pct) >= 0) snprintf(buf, sizeof buf, "The garage door is %d%% open", id(g_door_pct));
+            else if (pause) snprintf(buf, sizeof buf, "The garage door is open");
+            else if (dp == 3) snprintf(buf, sizeof buf, "The garage fell below %d°", id(g_dp_low));
+            else snprintf(buf, sizeof buf, "The garage rose above %d°", id(g_dp_high));
+            lv_label_set_text(id(dp_sub), buf);
+            if (std::isnan(id(g_indoor))) lv_label_set_text(id(dp_temp), "--°");
+            else {
+              snprintf(buf, sizeof buf, "%d°", (int) lroundf(id(g_indoor)));
+              lv_label_set_text(id(dp_temp), buf);
+            }
+            if (pause && rs > 0) snprintf(buf, sizeof buf, "%s returns in %d min", saved, rs);
+            else if (pause && rs == 0) snprintf(buf, sizeof buf, "%s returns now", saved);
+            else if (pause) snprintf(buf, sizeof buf, "%s returns when it closes", saved);
+            else if (rs > 0) snprintf(buf, sizeof buf, "%s %d° for %d more min", dp == 3 ? "Heating to" : "Cooling to", id(g_sp), rs);
+            else if (rs == 0) snprintf(buf, sizeof buf, "%s %d° · stopping now", dp == 3 ? "Heating to" : "Cooling to", id(g_sp));
+            else snprintf(buf, sizeof buf, "%s %d° until the door closes", dp == 3 ? "Heating to" : "Cooling to", id(g_sp));
+            lv_label_set_text(id(dp_line1), buf);
+            if (pause) snprintf(buf, sizeof buf, "Heats below %d° · cools above %d°", id(g_dp_low), id(g_dp_high));
+            else snprintf(buf, sizeof buf, "Then %s comes back", saved);
+            lv_label_set_text(id(dp_line2), buf);
+            // Resume now only while paused; Thermostat alone is centred.
+            if (pause) {
+              lv_obj_remove_flag(id(dp_btn_resume), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_x(id(dp_btn_view), 252);
+            } else {
+              lv_obj_add_flag(id(dp_btn_resume), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_x(id(dp_btn_view), 138);
+            }
+            lv_obj_set_style_bg_color(id(dp_btn_resume), fg, LV_PART_MAIN);
+            lv_obj_set_style_text_color(id(dp_resume_lbl), bg, LV_PART_MAIN);
+            lv_obj_set_style_border_color(id(dp_btn_view), fg, LV_PART_MAIN);
+            lv_obj_set_style_text_color(id(dp_view_lbl), fg, LV_PART_MAIN);
+            lv_obj_remove_flag(id(dp_overlay), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(dp_overlay), LV_OBJ_FLAG_HIDDEN);
+          }
+          if (dp == 2 && !full) {
+            // The thermostat while paused: the setpoint that comes back, on an amber ring.
+            lv_arc_set_value(id(dial), id(g_saved_sp));
+            lv_obj_set_style_arc_color(id(dial), lv_color_hex(${c_warn}), LV_PART_INDICATOR);
+            lv_obj_set_style_arc_opa(id(dial), LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_opa(id(dial), LV_OPA_TRANSP, LV_PART_KNOB);
+            lv_label_set_text(id(lbl_mode), id(g_dp_resume) >= 0 ? "PAUSED · DOOR CLOSED" : "PAUSED · DOOR OPEN");
+            lv_obj_set_style_text_color(id(lbl_mode), lv_color_hex(${c_warn}), LV_PART_MAIN);
+            snprintf(buf, sizeof buf, "%d°", id(g_saved_sp));
+            lv_label_set_text(id(lbl_big), buf);
+            lv_obj_set_style_text_color(id(lbl_big), muted_c, LV_PART_MAIN);
+            if (id(g_dp_resume) > 0) snprintf(buf, sizeof buf, "%s in %d min", saved, id(g_dp_resume));
+            else if (id(g_dp_resume) == 0) snprintf(buf, sizeof buf, "%s now", saved);
+            else snprintf(buf, sizeof buf, "%s when it closes", saved);
+            lv_label_set_text(id(lbl_inside), buf);
+          }
+          if (id(g_guard_note) != 0 && !full) {
+            const bool heat = id(g_guard_note) == 1;
+            lv_label_set_text(id(gt_title), heat ? "The guard turned on Heat" : "The guard turned on Cool");
+            const int t = std::isnan(id(g_guard_temp)) ? 0 : (int) lroundf(id(g_guard_temp));
+            snprintf(buf, sizeof buf, "The garage %s %d° (limit %d°) · %s", heat ? "fell to" : "rose to", t,
+                     heat ? id(g_dp_low) : id(g_dp_high), id(g_guard_time).c_str());
+            lv_label_set_text(id(gt_sub), buf);
+            lv_obj_remove_flag(id(guard_toast), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(guard_toast), LV_OBJ_FLAG_HIDDEN);
+          }
+
+  # "Resume now" on the paused screen: the mode from before the pause. The mini-split's ESP takes that as a change by
+  # hand and ends its pause until the door has closed.
+  - id: dp_resume
+    then:
+      - script.execute:
+          id: send_mode
+          m: !lambda "return id(g_saved_mode);"
+
+  - id: ui_step_setpoint
+    parameters:
+      delta: int
+    then:
+      - if:
+          condition:
+            lambda: "return id(g_mode) >= 1 && id(g_mode) <= 4;"
+          then:
+            - lambda: |-
+                int v = id(g_sp) + delta;
+                if (v < ${sp_min}) v = ${sp_min};
+                if (v > ${sp_max}) v = ${sp_max};
+                id(g_sp) = v;
+                id(g_sp_hold) = millis() + 5000;
+            - script.execute: ui_refresh
+            - script.execute: send_setpoint
+
+  - id: ui_set_mode
+    parameters:
+      m: int
+    then:
+      - lambda: "id(g_mode) = m;"
+      - script.execute: ui_refresh
+      - script.execute:
+          id: send_mode
+          m: !lambda "return m;"
+
+  - id: ui_set_fan
+    parameters:
+      f: int
+    then:
+      - lambda: "id(g_fan) = f;"
+      - script.execute: ui_refresh
+      - script.execute:
+          id: send_fan
+          f: !lambda "return f;"
+
+  - id: ui_toggle
+    parameters:
+      idx: int
+    then:
+      - lambda: |-
+          bool *flags[5] = {&id(g_eco), &id(g_sleep), &id(g_swing_v), &id(g_swing_h), &id(g_display)};
+          if (idx >= 0 && idx < 5) *flags[idx] = !*flags[idx];
+      - script.execute: ui_refresh
+      - script.execute:
+          id: send_toggle
+          idx: !lambda "return idx;"
+          turn_on: !lambda |-
+            const bool flags[5] = {id(g_eco), id(g_sleep), id(g_swing_v), id(g_swing_h), id(g_display)};
+            return idx >= 0 && idx < 5 && flags[idx];
+
+lvgl:
+  log_level: WARN
+  style_definitions:
+    - id: st_card
+      bg_color: ${d_card}
+      bg_opa: COVER
+      border_width: 1
+      border_color: ${d_border}
+      radius: 20
+      pad_all: 0
+      shadow_width: 0
+    - id: st_chip
+      bg_color: ${d_chip}
+      bg_opa: COVER
+      border_width: 0
+      radius: 14
+      pad_all: 0
+      shadow_width: 0
+    - id: st_bare
+      bg_opa: TRANSP
+      border_width: 0
+      radius: 0
+      pad_all: 0
+      pad_row: 0
+      pad_column: 0
+      shadow_width: 0
+    - id: st_text
+      text_color: ${d_text}
+    - id: st_muted
+      text_color: ${d_muted}
+    - id: st_soft
+      text_color: ${d_soft}
+    - id: st_track
+      bg_color: ${d_track}
+      bg_opa: COVER
+      border_width: 0
+      radius: 6
+      pad_all: 0
+  pages:
+    - id: main_page
+      bg_color: ${d_screen}
+      scrollable: false
+      # A sideways drag does nothing; caught here so it never presses the button it started on (buttons keep their
+      # press while the finger slides off). A drag on the dial's ring still sets the temperature.
+      on_swipe_left:
+        - if:
+            condition:
+              lambda: "return lv_indev_get_active_obj() != id(dial);"
+            then:
+              - lambda: "lv_indev_wait_release(lv_indev_active());"
+      on_swipe_right:
+        - if:
+            condition:
+              lambda: "return lv_indev_get_active_obj() != id(dial);"
+            then:
+              - lambda: "lv_indev_wait_release(lv_indev_active());"
+      widgets:
+        # Header
+        - label:
+            id: lbl_title
+            x: 24
+            y: 22
+            text: ${room_name}
+            text_font: f_title
+            styles: st_text
+        - label:
+            id: lbl_sub
+            x: 24
+            y: 62
+            text: Mini-split
+            text_font: f_sub
+            styles: st_muted
+        - obj:
+            id: chip_out
+            align: TOP_RIGHT
+            x: -20
+            y: 26
+            width: 116
+            height: 44
+            styles: st_card
+            radius: 22
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_out
+                  align: CENTER
+                  text: "\U000F18D6 --°"
+                  text_font: f_value
+                  styles: st_text
+        # The mini-split's power draw, left of the outside temperature.
+        - obj:
+            id: chip_pwr
+            align: TOP_RIGHT
+            x: -144
+            y: 26
+            width: 116
+            height: 44
+            styles: st_card
+            radius: 22
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_pwr
+                  align: CENTER
+                  text: "\U000F0241 -- W"
+                  text_font: f_value
+                  styles: st_text
+
+        # Dial: 360 px ring centred at (240, 276), open at the bottom for - and +.
+        - arc:
+            id: dial
+            # Only the ring responds; a press in the middle changes nothing.
+            adv_hittest: true
+            align: TOP_MID
+            y: 96
+            width: 360
+            height: 360
+            min_value: ${sp_min}
+            max_value: ${sp_max}
+            value: 73
+            start_angle: 135
+            end_angle: 45
+            adjustable: true
+            pad_all: 0
+            arc_color: ${d_track}
+            arc_width: 22
+            arc_rounded: true
+            indicator:
+              arc_color: ${c_heat}
+              arc_width: 22
+              arc_rounded: true
+            knob:
+              bg_color: 0xFFFFFF
+              bg_opa: COVER
+              pad_all: 6
+              border_width: 0
+              shadow_width: 14
+              shadow_color: 0x000000
+              shadow_opa: 50%
+            on_value:
+              - lambda: |-
+                  id(g_sp) = (int) x;
+                  id(g_sp_hold) = millis() + 5000;
+              - script.execute: ui_refresh
+            on_release:
+              - script.execute: send_setpoint
+            widgets:
+              - label:
+                  id: lbl_mode
+                  align: CENTER
+                  y: -84
+                  text: HEAT TO
+                  text_font: f_sub
+                  text_letter_space: 2
+              - label:
+                  id: lbl_big
+                  align: CENTER
+                  y: -8
+                  text: "--°"
+                  text_font: f_big
+                  styles: st_text
+              - label:
+                  id: lbl_inside
+                  align: CENTER
+                  y: 66
+                  text: Inside --°
+                  text_font: f_value
+                  styles: st_muted
+        - button:
+            id: btn_minus
+            x: 140
+            y: 384
+            width: 72
+            height: 72
+            styles: [st_card, st_text]
+            radius: 36
+            disabled:
+              opa: 35%
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "\U000F0374"
+                  text_font: f_icon_big
+            on_click:
+              - script.execute:
+                  id: ui_step_setpoint
+                  delta: -1
+        - button:
+            id: btn_plus
+            x: 268
+            y: 384
+            width: 72
+            height: 72
+            styles: [st_card, st_text]
+            radius: 36
+            disabled:
+              opa: 35%
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "\U000F0415"
+                  text_font: f_icon_big
+            on_click:
+              - script.execute:
+                  id: ui_step_setpoint
+                  delta: 1
+
+        # Modes
+        - obj:
+            x: 20
+            y: 476
+            width: 440
+            height: 84
+            styles: st_bare
+            scrollable: false
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: space_between
+              flex_align_cross: center
+            widgets:
+              - button:
+                  id: mode_off
+                  width: 68
+                  height: 84
+                  styles: [st_card, st_soft]
+                  checked: { bg_color: "${c_off}", border_color: "${c_off}", text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F0425", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Off", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_mode, m: 0 }
+              - button:
+                  id: mode_heat
+                  width: 68
+                  height: 84
+                  styles: [st_card, st_soft]
+                  checked: { bg_color: "${c_heat}", border_color: "${c_heat}", text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F0238", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Heat", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_mode, m: 1 }
+              - button:
+                  id: mode_cool
+                  width: 68
+                  height: 84
+                  styles: [st_card, st_soft]
+                  checked: { bg_color: "${c_cool}", border_color: "${c_cool}", text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F0717", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Cool", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_mode, m: 2 }
+              - button:
+                  id: mode_auto
+                  width: 68
+                  height: 84
+                  styles: [st_card, st_soft]
+                  checked: { bg_color: "${c_auto}", border_color: "${c_auto}", text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F1A79", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Auto", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_mode, m: 3 }
+              - button:
+                  id: mode_dry
+                  width: 68
+                  height: 84
+                  styles: [st_card, st_soft]
+                  checked: { bg_color: "${c_dry}", border_color: "${c_dry}", text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F058E", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Dry", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_mode, m: 4 }
+              - button:
+                  id: mode_fan
+                  width: 68
+                  height: 84
+                  styles: [st_card, st_soft]
+                  checked: { bg_color: "${c_fan}", border_color: "${c_fan}", text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F0210", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Fan", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_mode, m: 5 }
+
+        # Fan card: [Auto] [Quiet] [five bars, Low to High] [Turbo]
+        - obj:
+            id: fan_card
+            x: 20
+            y: 576
+            width: 440
+            height: 100
+            styles: st_card
+            scrollable: false
+            widgets:
+              - label:
+                  x: 18
+                  y: 12
+                  text: FAN
+                  text_font: f_caption
+                  text_letter_space: 2
+                  styles: st_muted
+              - label:
+                  id: lbl_fan
+                  align: TOP_RIGHT
+                  x: -18
+                  y: 12
+                  text: Auto
+                  text_font: f_caption
+                  styles: st_text
+              - button:
+                  id: fan_auto
+                  x: 16
+                  y: 42
+                  width: 70
+                  height: 46
+                  styles: [st_chip, st_soft]
+                  checked: { text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: CENTER, text: "Auto", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_fan, f: 0 }
+              - button:
+                  id: fan_quiet
+                  x: 94
+                  y: 42
+                  width: 70
+                  height: 46
+                  styles: [st_chip, st_soft]
+                  checked: { text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: CENTER, text: "Quiet", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_fan, f: 1 }
+              - obj:
+                  x: 172
+                  y: 38
+                  width: 170
+                  height: 52
+                  styles: st_bare
+                  scrollable: false
+                  widgets:
+                    - obj:
+                        x: 0
+                        width: 34
+                        height: 52
+                        styles: st_bare
+                        scrollable: false
+                        on_click:
+                          - script.execute: { id: ui_set_fan, f: 2 }
+                        widgets:
+                          - obj: { id: fan_bar1, align: BOTTOM_MID, width: 20, height: 14, styles: st_track, clickable: false, scrollable: false }
+                    - obj:
+                        x: 34
+                        width: 34
+                        height: 52
+                        styles: st_bare
+                        scrollable: false
+                        on_click:
+                          - script.execute: { id: ui_set_fan, f: 3 }
+                        widgets:
+                          - obj: { id: fan_bar2, align: BOTTOM_MID, width: 20, height: 23, styles: st_track, clickable: false, scrollable: false }
+                    - obj:
+                        x: 68
+                        width: 34
+                        height: 52
+                        styles: st_bare
+                        scrollable: false
+                        on_click:
+                          - script.execute: { id: ui_set_fan, f: 4 }
+                        widgets:
+                          - obj: { id: fan_bar3, align: BOTTOM_MID, width: 20, height: 32, styles: st_track, clickable: false, scrollable: false }
+                    - obj:
+                        x: 102
+                        width: 34
+                        height: 52
+                        styles: st_bare
+                        scrollable: false
+                        on_click:
+                          - script.execute: { id: ui_set_fan, f: 5 }
+                        widgets:
+                          - obj: { id: fan_bar4, align: BOTTOM_MID, width: 20, height: 41, styles: st_track, clickable: false, scrollable: false }
+                    - obj:
+                        x: 136
+                        width: 34
+                        height: 52
+                        styles: st_bare
+                        scrollable: false
+                        on_click:
+                          - script.execute: { id: ui_set_fan, f: 6 }
+                        widgets:
+                          - obj: { id: fan_bar5, align: BOTTOM_MID, width: 20, height: 50, styles: st_track, clickable: false, scrollable: false }
+              - button:
+                  id: fan_turbo
+                  x: 350
+                  y: 42
+                  width: 70
+                  height: 46
+                  styles: [st_chip, st_soft]
+                  checked: { text_color: 0xFFFFFF }
+                  widgets:
+                    - label: { align: CENTER, text: "Turbo", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_set_fan, f: 7 }
+
+        # Feature tiles
+        - obj:
+            x: 20
+            y: 692
+            width: 440
+            height: 88
+            styles: st_bare
+            scrollable: false
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: space_between
+              flex_align_cross: center
+            widgets:
+              - button:
+                  id: tile_eco
+                  width: 80
+                  height: 88
+                  styles: [st_card, st_soft]
+                  checked: { border_width: 2 }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F032A", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Eco", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_toggle, idx: 0 }
+              - button:
+                  id: tile_sleep
+                  width: 80
+                  height: 88
+                  styles: [st_card, st_soft]
+                  checked: { border_width: 2 }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F0594", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Sleep", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_toggle, idx: 1 }
+              - button:
+                  id: tile_swing_v
+                  width: 80
+                  height: 88
+                  styles: [st_card, st_soft]
+                  checked: { border_width: 2 }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F0E79", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Up–down", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_toggle, idx: 2 }
+              - button:
+                  id: tile_swing_h
+                  width: 80
+                  height: 88
+                  styles: [st_card, st_soft]
+                  checked: { border_width: 2 }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F0E73", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Left–right", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_toggle, idx: 3 }
+              - button:
+                  id: tile_display
+                  width: 80
+                  height: 88
+                  styles: [st_card, st_soft]
+                  checked: { border_width: 2 }
+                  widgets:
+                    - label: { align: TOP_MID, y: 14, text: "\U000F06E9", text_font: f_icon }
+                    - label: { align: BOTTOM_MID, y: -12, text: "Display", text_font: f_caption }
+                  on_click:
+                    - script.execute: { id: ui_toggle, idx: 4 }
+
+        # Garage safety: the card the guard leaves (tap to clear it), then the full paused or safety screen, last so
+        # it covers everything.
+        - obj:
+            id: guard_toast
+            x: 16
+            y: 10
+            width: 448
+            height: 84
+            hidden: true
+            styles: st_card
+            radius: 18
+            border_width: 2
+            border_color: ${c_alert}
+            scrollable: false
+            on_click:
+              - lambda: "id(g_guard_note) = 0;"
+              - script.execute: ui_refresh
+            widgets:
+              - label: { id: gt_icon, align: LEFT_MID, x: 18, text: "\U000F0ECC", text_font: f_icon, text_color: "${c_alert}" }
+              - label: { id: gt_title, x: 62, y: 14, text: "", text_font: f_value, styles: st_text }
+              - label: { id: gt_sub, x: 62, y: 46, text: "", text_font: f_caption, styles: st_muted }
+              - label: { align: RIGHT_MID, x: -18, text: "OK", text_font: f_value, text_color: "${c_alert}" }
+        - obj:
+            id: dp_overlay
+            x: 0
+            y: 0
+            width: 480
+            height: 800
+            hidden: true
+            scrollable: false
+            radius: 0
+            border_width: 0
+            pad_all: 0
+            bg_color: ${c_pause_bg}
+            bg_opa: COVER
+            widgets:
+              - label: { id: dp_hdr, align: TOP_MID, y: 40, text: "GARAGE · MINI-SPLIT", text_font: f_caption, text_letter_space: 2 }
+              - label: { id: dp_icon, align: TOP_MID, y: 88, text: "\U000F12D4", text_font: f_hero }
+              - label: { id: dp_title, align: TOP_MID, y: 232, text: "Paused", text_font: f_title }
+              - label: { id: dp_sub, align: TOP_MID, y: 276, text: "", text_font: f_value }
+              - label: { id: dp_temp, align: TOP_MID, y: 318, text: "--°", text_font: f_big }
+              - label: { id: dp_cap, align: TOP_MID, y: 460, text: "IN THE GARAGE", text_font: f_caption, text_letter_space: 2 }
+              - obj:
+                  x: 24
+                  y: 508
+                  width: 432
+                  height: 132
+                  radius: 22
+                  border_width: 0
+                  bg_color: 0x000000
+                  bg_opa: 14%
+                  pad_all: 0
+                  scrollable: false
+                  widgets:
+                    - label: { id: dp_line1, align: TOP_MID, y: 30, width: 400, text_align: CENTER, text: "", text_font: f_value }
+                    - label: { id: dp_line2, align: TOP_MID, y: 80, width: 400, text_align: CENTER, text: "", text_font: f_caption }
+              - button:
+                  id: dp_btn_resume
+                  x: 24
+                  y: 676
+                  width: 204
+                  height: 80
+                  radius: 40
+                  border_width: 0
+                  shadow_width: 0
+                  bg_opa: COVER
+                  widgets:
+                    - label: { id: dp_resume_lbl, align: CENTER, text: "Resume now", text_font: f_value }
+                  on_click:
+                    - script.execute: dp_resume
+              - button:
+                  id: dp_btn_view
+                  x: 252
+                  y: 676
+                  width: 204
+                  height: 80
+                  radius: 40
+                  border_width: 2
+                  shadow_width: 0
+                  bg_opa: TRANSP
+                  widgets:
+                    - label: { id: dp_view_lbl, align: CENTER, text: "Thermostat", text_font: f_value }
+                  on_click:
+                    - lambda: "id(g_dp_view) = true;"
+                    - script.execute: ui_refresh

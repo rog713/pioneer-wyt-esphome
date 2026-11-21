@@ -1,0 +1,279 @@
+# Thermostat panel: a preview of the real screen (ui.yaml) in an SDL window on the computer (needs SDL2).
+#
+#   esphome run panel/mock.yaml                    try it with the mouse (nothing is sent anywhere)
+#   MOCK_SNAPSHOT_DIR=<dir> <built program>        save one BMP per state in mock_capture, then exit
+
+esphome:
+  name: thermostat-panel-preview
+  friendly_name: Thermostat Panel Preview
+  platformio_options:
+    build_flags:
+      - -DLV_USE_SNAPSHOT=1
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(g_connected) = true;
+          id(g_mode) = 1; id(g_sp) = 73; id(g_fan) = 0;
+          id(g_indoor) = 70.8f; id(g_outdoor) = 41.0f; id(g_power) = 820.0f; id(g_action) = 1;
+      - script.execute: ui_theme
+      - if:
+          condition:
+            lambda: 'return getenv("MOCK_SNAPSHOT_DIR") != nullptr;'
+          then:
+            - script.execute: mock_capture
+      - if:
+          condition:
+            lambda: 'return getenv("MOCK_SWIPE_TEST") != nullptr;'
+          then:
+            - script.execute: mock_swipe_test
+
+host:
+
+logger:
+  level: INFO
+
+packages:
+  ui: !include
+    file: ui.yaml
+    vars:
+      mdi_font: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+
+display:
+  - platform: sdl
+    id: disp
+    dimensions:
+      width: 480
+      height: 800
+    auto_clear_enabled: false
+    update_interval: never
+
+touchscreen:
+  - platform: sdl
+    id: touch
+    display: disp
+
+script:
+  # The link to the mini-split: in the preview it only logs.
+  - id: send_mode
+    parameters:
+      m: int
+    then:
+      - logger.log: { format: "send_mode %d", args: [m] }
+  - id: send_fan
+    parameters:
+      f: int
+    then:
+      - logger.log: { format: "send_fan %d", args: [f] }
+  - id: send_setpoint
+    then:
+      - logger.log: { format: "send_setpoint %d", args: ["id(g_sp)"] }
+  - id: send_toggle
+    parameters:
+      idx: int
+      turn_on: bool
+    then:
+      - logger.log: { format: "send_toggle %d %d", args: [idx, turn_on] }
+
+  # Drags the SDL mouse from (x0, y) to (x1, y) in 40 px steps, 30 ms apart, as a finger swipe.
+  - id: mock_drag
+    mode: queued
+    parameters:
+      x0: int
+      x1: int
+      y: int
+    then:
+      - lambda: "id(disp).mouse_x = x0; id(disp).mouse_y = y; id(disp).mouse_down = true;"
+      - repeat:
+          count: 9
+          then:
+            - delay: 30ms
+            - lambda: "id(disp).mouse_x += (x1 - x0) / 8;"
+      - delay: 30ms
+      - lambda: "id(disp).mouse_down = false;"
+      - delay: 400ms
+
+  - id: mock_tap
+    mode: queued
+    parameters:
+      x: int
+      y: int
+    then:
+      - lambda: "id(disp).mouse_x = x; id(disp).mouse_y = y; id(disp).mouse_down = true;"
+      - delay: 120ms
+      - lambda: "id(disp).mouse_down = false;"
+      - delay: 400ms
+
+  - id: mock_report
+    parameters:
+      step: string
+    then:
+      - lambda: |-
+          ESP_LOGI("swipe", "%s -> mode %d, setpoint %d", step.c_str(), id(g_mode), id(g_sp));
+
+  # MOCK_SWIPE_TEST=1: a sideways drag over the mode buttons (presses nothing), a tap in the dial's middle (changes
+  # nothing) and a drag on its ring (sets the temperature), then exits.
+  - id: mock_swipe_test
+    then:
+      - delay: 800ms
+      - script.execute: { id: mock_report, step: "start" }
+      - script.execute: { id: mock_drag, x0: 430, x1: 110, y: 518 }
+      - script.wait: mock_drag
+      - script.execute: { id: mock_report, step: "drag across the mode buttons" }
+      - script.execute: { id: mock_tap, x: 240, y: 330 }
+      - script.wait: mock_tap
+      - script.execute: { id: mock_report, step: "tap the dial's middle" }
+      - script.execute: { id: mock_drag, x0: 180, x1: 330, y: 100 }
+      - script.wait: mock_drag
+      - script.execute: { id: mock_report, step: "drag along the dial's ring" }
+      - lambda: "exit(0);"
+
+  # Saves the active screen as <MOCK_SNAPSHOT_DIR>/<name>.bmp (24-bit).
+  - id: mock_snap
+    parameters:
+      name: string
+    then:
+      - lambda: |-
+          const char *dir = getenv("MOCK_SNAPSHOT_DIR");
+          if (dir == nullptr) return;
+          lv_obj_t *scr = lv_screen_active();
+          lv_obj_update_layout(scr);
+          lv_draw_buf_t *snap = lv_snapshot_take(scr, LV_COLOR_FORMAT_RGB888);
+          if (snap == nullptr) { ESP_LOGE("mock", "snapshot failed"); return; }
+          const uint32_t w = snap->header.w, h = snap->header.h, stride = snap->header.stride;
+          const uint32_t row = (w * 3 + 3) & ~3u;
+          const uint32_t data_size = row * h;
+          uint8_t hdr[54] = {'B', 'M'};
+          auto put32 = [&](int off, uint32_t v) { for (int i = 0; i < 4; i++) hdr[off + i] = (v >> (8 * i)) & 0xFF; };
+          put32(2, 54 + data_size); put32(10, 54); put32(14, 40); put32(18, w); put32(22, h);
+          hdr[26] = 1; hdr[28] = 24; put32(34, data_size);
+          std::string path = std::string(dir) + "/" + name + ".bmp";
+          FILE *fp = fopen(path.c_str(), "wb");
+          if (fp == nullptr) { ESP_LOGE("mock", "cannot write %s", path.c_str()); lv_draw_buf_destroy(snap); return; }
+          fwrite(hdr, 1, sizeof hdr, fp);
+          static const uint8_t pad[3] = {0, 0, 0};
+          for (int y = (int) h - 1; y >= 0; y--) {
+            fwrite(snap->data + (size_t) y * stride, 1, w * 3, fp);
+            fwrite(pad, 1, row - w * 3, fp);
+          }
+          fclose(fp);
+          lv_draw_buf_destroy(snap);
+          ESP_LOGI("mock", "saved %s (%ux%u)", path.c_str(), (unsigned) w, (unsigned) h);
+
+  - id: mock_capture
+    then:
+      - delay: 500ms
+      # 1 Dark, heating to 73F, fan Auto
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "1-dark-heat" }
+      # 2 Dark, cooling to 72F, fan Mid-high, Eco and Up-down louver on
+      - lambda: |-
+          id(g_mode) = 2; id(g_sp) = 72; id(g_fan) = 5;
+          id(g_indoor) = 78.4f; id(g_outdoor) = 96.0f; id(g_power) = 1150.0f; id(g_action) = 2;
+          id(g_eco) = true; id(g_swing_v) = true;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "2-dark-cool" }
+      # 3 Dark, Auto at 75F, fan Turbo, Sleep on
+      - lambda: |-
+          id(g_mode) = 3; id(g_sp) = 75; id(g_fan) = 7;
+          id(g_indoor) = 74.1f; id(g_outdoor) = 63.0f; id(g_power) = 14.0f; id(g_action) = 0;
+          id(g_eco) = false; id(g_swing_v) = false; id(g_sleep) = true;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "3-dark-auto" }
+      # 4 Dark, Fan only on Quiet, Left-right louver on
+      - lambda: |-
+          id(g_mode) = 5; id(g_fan) = 1; id(g_sleep) = false; id(g_swing_h) = true;
+          id(g_indoor) = 72.6f; id(g_outdoor) = 58.0f; id(g_power) = 38.0f;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "4-dark-fan" }
+      # 5 Dark, Off and not connected to Home Assistant
+      - lambda: |-
+          id(g_mode) = 0; id(g_fan) = 0; id(g_swing_h) = false; id(g_connected) = false;
+          id(g_indoor) = 66.2f; id(g_outdoor) = 52.0f; id(g_power) = NAN;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "5-dark-off" }
+      # 6 The light palette, cooling
+      - lambda: |-
+          id(g_light) = true; id(g_connected) = true;
+          id(g_mode) = 2; id(g_sp) = 72; id(g_fan) = 5;
+          id(g_indoor) = 78.4f; id(g_outdoor) = 96.0f; id(g_power) = 1150.0f; id(g_action) = 2;
+          id(g_eco) = true; id(g_swing_v) = true;
+      - script.execute: ui_theme
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "6-light-cool" }
+      # 7 Dark, heating idle at 73F, the unit reporting fault 3
+      - lambda: |-
+          id(g_light) = false; id(g_mode) = 1; id(g_sp) = 73; id(g_fan) = 0; id(g_action) = 0;
+          id(g_indoor) = 73.2f; id(g_outdoor) = 41.0f; id(g_power) = 9.0f; id(g_fault) = "3";
+          id(g_eco) = false; id(g_swing_v) = false;
+      - script.execute: ui_theme
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "7-dark-fault" }
+      - lambda: 'id(g_fault) = "";'
+      # 8 The garage door open, the pause counting down
+      - lambda: |-
+          id(g_fault) = ""; id(g_mode) = 1; id(g_sp) = 69; id(g_fan) = 1; id(g_action) = 1; id(g_power) = 820.0f;
+          id(g_indoor) = 71.0f; id(g_outdoor) = 41.0f; id(g_dp) = 1; id(g_dp_left) = 7;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "8-door-open" }
+      # 9 Paused: the full screen
+      - lambda: |-
+          id(g_mode) = 0; id(g_action) = 0; id(g_power) = 4.0f; id(g_indoor) = 66.0f;
+          id(g_dp) = 2; id(g_door_pct) = 69; id(g_saved_mode) = 1; id(g_saved_sp) = 69; id(g_dp_view) = false;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "9-paused" }
+      # 10 Paused, after Thermostat is tapped
+      - lambda: "id(g_dp_view) = true;"
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "10-paused-thermostat" }
+      # 11 Heating for safety (door still open)
+      - lambda: |-
+          id(g_dp_view) = false; id(g_dp) = 3; id(g_mode) = 1; id(g_sp) = 69; id(g_fan) = 0; id(g_action) = 1;
+          id(g_power) = 910.0f; id(g_indoor) = 58.0f;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "11-safety-heat" }
+      # 12 Cooling for safety (summer: the saved setting was Cool to 78)
+      - lambda: |-
+          id(g_dp) = 4; id(g_mode) = 2; id(g_sp) = 78; id(g_action) = 2; id(g_power) = 1240.0f;
+          id(g_indoor) = 87.0f; id(g_outdoor) = 98.0f; id(g_saved_mode) = 2; id(g_saved_sp) = 78;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "12-safety-cool" }
+      # 13 Door closed; the guard turned on Heat earlier (the unit had been left off)
+      - lambda: |-
+          id(g_dp) = 0; id(g_mode) = 1; id(g_sp) = 69; id(g_action) = 1; id(g_power) = 880.0f;
+          id(g_indoor) = 59.0f; id(g_outdoor) = 28.0f; id(g_guard_note) = 1; id(g_guard_temp) = 58.0f;
+          id(g_guard_time) = "6:42 am";
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "13-guard" }
+      # 14 Paused, the door closed again: the resume wait counting down
+      - lambda: |-
+          id(g_guard_note) = 0; id(g_mode) = 0; id(g_action) = 0; id(g_power) = 4.0f; id(g_indoor) = 66.0f;
+          id(g_outdoor) = 41.0f; id(g_dp) = 2; id(g_dp_resume) = 2; id(g_saved_mode) = 1; id(g_saved_sp) = 69;
+          id(g_dp_view) = false;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "14-door-closed" }
+      # 15 The same, after Thermostat is tapped
+      - lambda: "id(g_dp_view) = true;"
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "15-door-closed-thermostat" }
+      # 16 Heating for safety, the door closed again
+      - lambda: |-
+          id(g_dp_view) = false; id(g_dp) = 3; id(g_mode) = 1; id(g_sp) = 65; id(g_action) = 1;
+          id(g_power) = 910.0f; id(g_indoor) = 58.0f; id(g_dp_resume) = 1;
+      - script.execute: ui_refresh
+      - delay: 300ms
+      - script.execute: { id: mock_snap, name: "16-safety-door-closed" }
+      - lambda: "exit(0);"
