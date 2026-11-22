@@ -89,6 +89,10 @@ globals:
   - id: g_dp_resume
     type: int
     initial_value: "-1"
+  # The mini-split's "Door pause resume wait" (minutes the door must stay closed before the saved settings come back).
+  - id: g_dp_wait
+    type: int
+    initial_value: "-1"
   # While paused: false shows the full paused screen, true the thermostat (after "Thermostat" is tapped).
   - id: g_dp_view
     type: bool
@@ -397,6 +401,7 @@ script:
             }
             if (pause && rs > 0) snprintf(buf, sizeof buf, "%s returns in %d min", saved, rs);
             else if (pause && rs == 0) snprintf(buf, sizeof buf, "%s returns now", saved);
+            else if (pause && id(g_dp_wait) > 0) snprintf(buf, sizeof buf, "%s returns %d min after it closes", saved, id(g_dp_wait));
             else if (pause) snprintf(buf, sizeof buf, "%s returns when it closes", saved);
             else if (rs > 0) snprintf(buf, sizeof buf, "%s %d° for %d more min", dp == 3 ? "Heating to" : "Cooling to", id(g_sp), rs);
             else if (rs == 0) snprintf(buf, sizeof buf, "%s %d° · stopping now", dp == 3 ? "Heating to" : "Cooling to", id(g_sp));
@@ -434,6 +439,11 @@ script:
             lv_obj_set_style_text_color(id(lbl_big), muted_c, LV_PART_MAIN);
             if (id(g_dp_resume) > 0) snprintf(buf, sizeof buf, "%s in %d min", saved, id(g_dp_resume));
             else if (id(g_dp_resume) == 0) snprintf(buf, sizeof buf, "%s now", saved);
+            else if (id(g_dp_wait) > 0) {
+              // Only the mode here: the setpoint is the big number, and the full line would run into the ring.
+              static const char *const MODE_TXT[6] = {"Off", "Heat", "Cool", "Auto", "Dry", "Fan"};
+              snprintf(buf, sizeof buf, "%s %d min after it closes", MODE_TXT[sm], id(g_dp_wait));
+            }
             else snprintf(buf, sizeof buf, "%s when it closes", saved);
             lv_label_set_text(id(lbl_inside), buf);
           }

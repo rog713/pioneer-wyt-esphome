@@ -225,7 +225,7 @@ script:
       # 9 Paused: the full screen
       - lambda: |-
           id(g_mode) = 0; id(g_action) = 0; id(g_power) = 4.0f; id(g_indoor) = 66.0f;
-          id(g_dp) = 2; id(g_door_pct) = 69; id(g_saved_mode) = 1; id(g_saved_sp) = 69; id(g_dp_view) = false;
+          id(g_dp) = 2; id(g_door_pct) = 69; id(g_saved_mode) = 1; id(g_saved_sp) = 69; id(g_dp_view) = false; id(g_dp_wait) = 2;
       - script.execute: ui_refresh
       - delay: 300ms
       - script.execute: { id: mock_snap, name: "9-paused" }

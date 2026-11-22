@@ -323,6 +323,13 @@ sensor:
     on_value:
       - lambda: "id(g_dp_resume) = std::isnan(x) ? -1 : (int) x;"
       - script.execute: ui_refresh
+  # How long the door must stay closed before the saved settings come back (the mini-split's setting).
+  - platform: homeassistant
+    id: ha_dp_wait
+    entity_id: number.${safety_device}_door_pause_resume_wait
+    on_value:
+      - lambda: "id(g_dp_wait) = std::isnan(x) ? -1 : (int) lroundf(x);"
+      - script.execute: ui_refresh
   - platform: homeassistant
     id: ha_door_pct
     entity_id: ${door_entity}
